@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"github.com/webhookx-io/webhookx/admin"
 	"github.com/webhookx-io/webhookx/admin/api"
@@ -10,6 +11,7 @@ import (
 	"github.com/webhookx-io/webhookx/pkg/cache"
 	"github.com/webhookx-io/webhookx/pkg/log"
 	"github.com/webhookx-io/webhookx/pkg/queue"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/proxy"
 	"github.com/webhookx-io/webhookx/worker"
 	"go.uber.org/zap"
@@ -38,7 +40,53 @@ type Application struct {
 	admin   *admin.Admin
 	gateway *proxy.Gateway
 	worker  *worker.Worker
+
+	shutdown func(context.Context) error
 }
+
+// To be deleted
+//func setupOTelSDK(ctx context.Context, cfg config.TracingConfig) (shutdown func(context.Context) error, err error) {
+//	var shutdownFuncs []func(context.Context) error
+//
+//	// shutdown calls cleanup functions registered via shutdownFuncs.
+//	// The errors from the calls are joined.
+//	// Each registered cleanup will be invoked once.
+//	shutdown = func(ctx context.Context) error {
+//		var err error
+//		for _, fn := range shutdownFuncs {
+//			err = errors.Join(err, fn(ctx))
+//		}
+//		shutdownFuncs = nil
+//		return err
+//	}
+//
+//	// handleErr calls shutdown for cleanup and makes sure that all errors are returned.
+//	handleErr := func(inErr error) {
+//		err = errors.Join(inErr, shutdown(ctx))
+//	}
+//
+//	// Set up propagator.
+//	prop := newPropagator()
+//	otel.SetTextMapPropagator(prop)
+//
+//	// Set up trace provider.
+//	tracerProvider, err := newTraceProvider(cfg)
+//	if err != nil {
+//		handleErr(err)
+//		return
+//	}
+//	shutdownFuncs = append(shutdownFuncs, tracerProvider.Shutdown)
+//	otel.SetTracerProvider(tracerProvider)
+//
+//	return
+//}
+//
+//func newPropagator() propagation.TextMapPropagator {
+//	return propagation.NewCompositeTextMapPropagator(
+//		propagation.TraceContext{},
+//		propagation.Baggage{},
+//	)
+//}
 
 func NewApplication(cfg *config.Config) (*Application, error) {
 	app := &Application{
@@ -81,6 +129,17 @@ func (app *Application) initialize() error {
 	app.cache = cache.NewRedisCache(client)
 
 	app.dispatcher = dispatcher.NewDispatcher(log.Sugar(), queue, db)
+
+	//otelShutdown, err := setupOTelSDK(context.TODO(), cfg.Tracing)
+	//if err != nil {
+	//	return err
+	//}
+	//app.shutdown = otelShutdown
+
+	err = tracing.Setup(cfg.Tracing)
+	if err != nil {
+		return err
+	}
 
 	// worker
 	if cfg.WorkerConfig.Enabled {
@@ -157,6 +216,13 @@ func (app *Application) Stop() error {
 	}
 	if app.worker != nil {
 		app.worker.Stop()
+	}
+
+	if app.shutdown != nil {
+		err := app.shutdown(context.TODO())
+		if err != nil {
+			app.log.Infof("failed to call otel shutdown: %v", err)
+		}
 	}
 
 	app.started = false

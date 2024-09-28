@@ -13,6 +13,7 @@ import (
 	"github.com/webhookx-io/webhookx/pkg/ucontext"
 	"github.com/webhookx-io/webhookx/proxy/router"
 	"github.com/webhookx-io/webhookx/utils"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.uber.org/zap"
 	"net/http"
 	"os"
@@ -45,9 +46,10 @@ func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispa
 	r := mux.NewRouter()
 	r.Use(panicRecovery)
 	r.PathPrefix("/").HandlerFunc(gw.Handle)
+	handler := otelhttp.NewHandler(r, "/")
 
 	gw.s = &http.Server{
-		Handler: r,
+		Handler: handler,
 		Addr:    cfg.Listen,
 
 		ReadTimeout:  time.Duration(cfg.TimeoutRead) * time.Second,

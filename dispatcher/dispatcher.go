@@ -9,6 +9,7 @@ import (
 	"github.com/webhookx-io/webhookx/pkg/queue"
 	"github.com/webhookx-io/webhookx/pkg/types"
 	"github.com/webhookx-io/webhookx/utils"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 	"time"
 )
@@ -29,7 +30,11 @@ func NewDispatcher(log *zap.SugaredLogger, queue queue.TaskQueue, db *db.DB) *Di
 	return dispatcher
 }
 
+var tracer = otel.Tracer("dispatcher")
+
 func (d *Dispatcher) Dispatch(ctx context.Context, event *entities.Event) error {
+	_, span := tracer.Start(ctx, "dispatch")
+	defer span.End()
 	endpoints, err := listSubscribedEndpoints(ctx, d.db, event.EventType)
 	if err != nil {
 		return err

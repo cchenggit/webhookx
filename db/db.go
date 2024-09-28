@@ -8,6 +8,7 @@ import (
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/db/dao"
 	"github.com/webhookx-io/webhookx/db/transaction"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -73,7 +74,12 @@ func (db *DB) Ping() error {
 	return db.DB.Ping()
 }
 
+var tracer = otel.Tracer("db")
+
 func (db *DB) TX(ctx context.Context, fn func(ctx context.Context) error) error {
+	_, span := tracer.Start(ctx, "transaction")
+	defer span.End()
+
 	tx, err := db.DB.Beginx()
 	if err != nil {
 		return err
