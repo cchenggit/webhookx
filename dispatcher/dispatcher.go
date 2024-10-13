@@ -2,16 +2,18 @@ package dispatcher
 
 import (
 	"context"
+	"time"
+
 	"github.com/webhookx-io/webhookx/db"
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/model"
 	"github.com/webhookx-io/webhookx/pkg/queue"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/pkg/types"
 	"github.com/webhookx-io/webhookx/utils"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"time"
 )
 
 // Dispatcher is Event Dispatcher
@@ -30,11 +32,12 @@ func NewDispatcher(log *zap.SugaredLogger, queue queue.TaskQueue, db *db.DB) *Di
 	return dispatcher
 }
 
-var tracer = otel.Tracer("dispatcher")
-
 func (d *Dispatcher) Dispatch(ctx context.Context, event *entities.Event) error {
-	_, span := tracer.Start(ctx, "dispatch")
-	defer span.End()
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dispatcher", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	endpoints, err := listSubscribedEndpoints(ctx, d.db, event.EventType)
 	if err != nil {
 		return err
@@ -78,7 +81,7 @@ func (d *Dispatcher) DispatchEndpoint(ctx context.Context, eventId string, endpo
 	}
 
 	for i, task := range tasks {
-		err := d.queue.Add(task, attempts[i].ScheduledAt.Time)
+		err := d.queue.Add(ctx, task, attempts[i].ScheduledAt.Time)
 		if err != nil {
 			d.log.Warnf("failed to add task to queue: %v", err)
 			continue
@@ -134,7 +137,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, event *entities.Event, endpoi
 	}
 
 	for i, task := range tasks {
-		err := d.queue.Add(task, attempts[i].ScheduledAt.Time)
+		err := d.queue.Add(ctx, task, attempts[i].ScheduledAt.Time)
 		if err != nil {
 			d.log.Warnf("failed to add task to queue: %v", err)
 			continue

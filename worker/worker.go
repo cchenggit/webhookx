@@ -15,9 +15,11 @@ import (
 	"github.com/webhookx-io/webhookx/pkg/queue"
 	"github.com/webhookx-io/webhookx/pkg/safe"
 	"github.com/webhookx-io/webhookx/pkg/schedule"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/pkg/types"
 	"github.com/webhookx-io/webhookx/utils"
 	"github.com/webhookx-io/webhookx/worker/deliverer"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -31,15 +33,17 @@ type Worker struct {
 	queue     queue.TaskQueue
 	deliverer deliverer.Deliverer
 	DB        *db.DB
+	tracer    *tracing.Tracer
 }
 
-func NewWorker(cfg *config.WorkerConfig, db *db.DB, queue queue.TaskQueue) *Worker {
+func NewWorker(cfg *config.WorkerConfig, db *db.DB, queue queue.TaskQueue, tracer *tracing.Tracer) *Worker {
 	worker := &Worker{
 		stop:      make(chan struct{}),
 		queue:     queue,
 		log:       zap.S(),
 		deliverer: deliverer.NewHTTPDeliverer(&cfg.Deliverer),
 		DB:        db,
+		tracer:    tracer,
 	}
 
 	return worker
@@ -56,7 +60,11 @@ func (w *Worker) run() {
 			return
 		case <-ticker.C:
 			for {
-				task, err := w.queue.Get()
+				// TODO: start trace with task context
+				start := time.Now()
+				ctx, span := w.tracer.Start(context.Background(), "worker.fetch", trace.WithSpanKind(trace.SpanKindConsumer), trace.WithTimestamp(start))
+				defer span.End()
+				task, err := w.queue.Get(ctx)
 				if err != nil {
 					w.log.Errorf("[worker] failed to get task from queue: %v", err)
 					break
@@ -66,22 +74,27 @@ func (w *Worker) run() {
 				}
 				w.log.Debugf("[worker] receive task: %v", task)
 				safe.Go(func() {
+					// TODO: start trace with task context
+					start := time.Now()
+					ctx, span := w.tracer.Start(context.Background(), "worker.handle", trace.WithSpanKind(trace.SpanKindClient), trace.WithTimestamp(start))
+					defer span.End()
+
 					task.Data = &model.MessageData{}
 					err = task.UnmarshalData(task.Data)
 					if err != nil {
 						w.log.Errorf("[worker] failed to unmarshal task: %v", err)
-						w.queue.Delete(task)
+						w.queue.Delete(ctx, task)
 						return
 					}
 
-					err = w.handleTask(context.Background(), task)
+					err = w.handleTask(ctx, task)
 					if err != nil {
 						// TODO: delete task when causes error too many times (maxReceiveCount)
 						w.log.Errorf("[worker] failed to handle task: %v", err)
 						return
 					}
 
-					w.queue.Delete(task)
+					w.queue.Delete(ctx, task)
 				})
 			}
 		}
@@ -138,7 +151,7 @@ func (w *Worker) processUnqueued() {
 		}
 
 		for i, task := range tasks {
-			err := w.queue.Add(task, attempts[i].ScheduledAt.Time)
+			err := w.queue.Add(ctx, task, attempts[i].ScheduledAt.Time)
 			if err != nil {
 				w.log.Warnf("failed to add task to queue: %v", err)
 				continue
@@ -220,7 +233,7 @@ func (w *Worker) handleTask(ctx context.Context, task *queue.TaskMessage) error 
 
 	// deliver the request
 	startAt := time.Now()
-	response := w.deliverer.Deliver(request)
+	response := w.deliverer.Deliver(ctx, request)
 	finishAt := time.Now()
 
 	if response.Error != nil {
@@ -289,7 +302,7 @@ func (w *Worker) handleTask(ctx context.Context, task *queue.TaskMessage) error 
 		},
 	}
 
-	err = w.queue.Add(task, nextAttempt.ScheduledAt.Time)
+	err = w.queue.Add(ctx, task, nextAttempt.ScheduledAt.Time)
 	if err != nil {
 		w.log.Warnf("[worker] failed to add task to queue: %v", err)
 	}

@@ -12,7 +12,8 @@ RUN make build
 FROM alpine:3.15
 
 COPY --from=build-env /go/src/webhookx-io/webhookx/webhookx /usr/local/bin
+COPY --from=build-env /go/src/webhookx-io/webhookx/config.yml .
 
 EXPOSE 8080
 
-CMD ["webhookx", "start"]
+CMD ["webhookx", "start", "--config", "config.yml"]

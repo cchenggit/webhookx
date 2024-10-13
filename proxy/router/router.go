@@ -1,12 +1,9 @@
 package router
 
 import (
-	"go.opentelemetry.io/otel"
 	"net/http"
 	"slices"
 )
-
-var tracer = otel.Tracer("proxy.router")
 
 type Router struct {
 	routes []*Route
@@ -19,9 +16,7 @@ func NewRouter(routes []*Route) *Router {
 	return router
 }
 
-func (r *Router) Execute(req *http.Request) interface{} {
-	_, span := tracer.Start(req.Context(), "match")
-	defer span.End()
+func (r *Router) Execute(req *http.Request) (source interface{}) {
 	path := req.URL.Path
 	method := req.Method
 	for _, route := range r.routes {

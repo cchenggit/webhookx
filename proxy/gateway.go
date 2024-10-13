@@ -3,21 +3,26 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/db"
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/dispatcher"
+	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"github.com/webhookx-io/webhookx/pkg/schedule"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/pkg/ucontext"
 	"github.com/webhookx-io/webhookx/proxy/router"
 	"github.com/webhookx-io/webhookx/utils"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"net/http"
-	"os"
-	"time"
 )
 
 type Gateway struct {
@@ -32,22 +37,26 @@ type Gateway struct {
 	db     *db.DB
 
 	dispatcher *dispatcher.Dispatcher
+
+	observabilityManager *middlewares.ObservabilityManager
 }
 
-func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispatcher) *Gateway {
+func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispatcher, observabilityManager *middlewares.ObservabilityManager) *Gateway {
 	gw := &Gateway{
-		cfg:        cfg,
-		log:        zap.S(),
-		router:     router.NewRouter(nil),
-		db:         db,
-		dispatcher: dispatcher,
+		cfg:                  cfg,
+		log:                  zap.S(),
+		router:               router.NewRouter(nil),
+		db:                   db,
+		dispatcher:           dispatcher,
+		observabilityManager: observabilityManager,
 	}
 
 	r := mux.NewRouter()
 	r.Use(panicRecovery)
 	r.PathPrefix("/").HandlerFunc(gw.Handle)
-	handler := otelhttp.NewHandler(r, "/")
 
+	chain := gw.observabilityManager.BuildChain(context.Background(), "proxy")
+	handler := chain.Then(r)
 	gw.s = &http.Server{
 		Handler: handler,
 		Addr:    cfg.Listen,
@@ -78,7 +87,23 @@ func (gw *Gateway) buildRouter() {
 }
 
 func (gw *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
-	source, _ := gw.router.Execute(r).(*entities.Source)
+	var source *entities.Source
+	tracer := tracing.TracerFromContext(r.Context())
+	if tracer != nil {
+		tracingCtx, span := tracer.Start(r.Context(), "router", trace.WithSpanKind(trace.SpanKindInternal))
+		defer span.End()
+		r = r.WithContext(tracingCtx)
+		defer func() {
+			if source != nil {
+				span.SetAttributes(attribute.String("router.id", source.ID))
+				span.SetAttributes(attribute.String("router.name", utils.PointerValue(source.Name)))
+				span.SetAttributes(attribute.String("router.workspaceId", source.WorkspaceId))
+				span.SetAttributes(semconv.HTTPRoute(source.Path))
+			}
+		}()
+	}
+
+	source, _ = gw.router.Execute(r).(*entities.Source)
 	if source == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(404)

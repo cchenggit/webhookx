@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -13,13 +15,17 @@ type RedisConfig struct {
 	// fixme: pool property
 }
 
-func (cfg RedisConfig) GetClient() *redis.Client {
+func (cfg RedisConfig) GetClient() (*redis.Client, error) {
 	options := &redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Password: cfg.Password,
 		DB:       int(cfg.Database),
 	}
-	return redis.NewClient(options)
+	rdb := redis.NewClient(options)
+	if err := redisotel.InstrumentTracing(rdb); err != nil {
+		return nil, err
+	}
+	return rdb, nil
 }
 
 func (cfg RedisConfig) Validate() error {

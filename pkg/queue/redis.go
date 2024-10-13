@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/redis/go-redis/v9"
-	"go.uber.org/zap"
 	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 )
 
 const (
@@ -82,7 +85,13 @@ func NewRedisQueue(client *redis.Client) *RedisTaskQueue {
 	return q
 }
 
-func (q *RedisTaskQueue) Add(task *TaskMessage, scheduleAt time.Time) error {
+func (q *RedisTaskQueue) Add(ctx context.Context, task *TaskMessage, scheduleAt time.Time) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "queue.add", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		ctx = tracingCtx
+	}
+
 	zap.S().Debugf("[redis-queue]: add task %s schedule at: %s", task.ID, scheduleAt.Format("2006-01-02T15:04:05.000"))
 	keys := []string{DefaultQueueName, QueueDataHashName}
 	data, err := json.Marshal(task.Data)
@@ -94,7 +103,7 @@ func (q *RedisTaskQueue) Add(task *TaskMessage, scheduleAt time.Time) error {
 		task.ID,
 		data,
 	}
-	res, err := addScript.Run(context.Background(), q.c, keys, argv...).Result()
+	res, err := addScript.Run(ctx, q.c, keys, argv...).Result()
 	if err != nil {
 		return err
 	}
@@ -104,12 +113,17 @@ func (q *RedisTaskQueue) Add(task *TaskMessage, scheduleAt time.Time) error {
 	return nil
 }
 
-func (q *RedisTaskQueue) Get() (*TaskMessage, error) {
+func (q *RedisTaskQueue) Get(ctx context.Context) (*TaskMessage, error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "queue.get", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	keys := []string{DefaultQueueName, QueueDataHashName, InvisibleQueueName}
 	argv := []interface{}{
 		VisibilityTimeout,
 	}
-	res, err := getScript.Run(context.Background(), q.c, keys, argv...).Result()
+	res, err := getScript.Run(ctx, q.c, keys, argv...).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -128,13 +142,18 @@ func (q *RedisTaskQueue) Get() (*TaskMessage, error) {
 	}
 }
 
-func (q *RedisTaskQueue) Delete(task *TaskMessage) error {
+func (q *RedisTaskQueue) Delete(ctx context.Context, task *TaskMessage) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "queue.delete", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	zap.S().Debugf("[redis-queue]: delete task %s", task.ID)
 	keys := []string{InvisibleQueueName, DefaultQueueName, QueueDataHashName}
 	argv := []interface{}{
 		task.ID,
 	}
-	res, err := deleteScript.Run(context.Background(), q.c, keys, argv...).Result()
+	res, err := deleteScript.Run(ctx, q.c, keys, argv...).Result()
 	if err != nil {
 		return err
 	}

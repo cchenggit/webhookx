@@ -1,6 +1,10 @@
 package config
 
-import "github.com/webhookx-io/webhookx/pkg/types"
+import (
+	"errors"
+
+	"github.com/webhookx-io/webhookx/pkg/types"
+)
 
 type TracingConfig struct {
 	ServiceName             string            `yaml:"service_name" default:"WebhookX"`
@@ -29,9 +33,12 @@ type OtelGPRC struct {
 	Endpoint string            `yaml:"endpoint" default:"localhost:4317"`
 	Headers  map[string]string `yaml:"headers"`
 	Insecure bool              `yaml:"insecure" default:"false"`
+	TLS      *types.ClientTLS  `yaml:"tls"`
 }
 
 func (cfg TracingConfig) Validate() error {
-	// TODO
+	if cfg.SamplingRate > 1 || cfg.SamplingRate < 0 {
+		return errors.New("invalid sampling rate")
+	}
 	return nil
 }

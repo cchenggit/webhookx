@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"sync"
 
@@ -12,8 +11,8 @@ import (
 	"github.com/webhookx-io/webhookx/dispatcher"
 	"github.com/webhookx-io/webhookx/pkg/cache"
 	"github.com/webhookx-io/webhookx/pkg/log"
+	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"github.com/webhookx-io/webhookx/pkg/queue"
-	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/proxy"
 	"github.com/webhookx-io/webhookx/worker"
 	"go.uber.org/zap"
@@ -38,11 +37,10 @@ type Application struct {
 	dispatcher *dispatcher.Dispatcher
 	cache      cache.Cache
 
-	admin   *admin.Admin
-	gateway *proxy.Gateway
-	worker  *worker.Worker
-
-	shutdown func(context.Context) error
+	admin                *admin.Admin
+	gateway              *proxy.Gateway
+	worker               *worker.Worker
+	observabilityManager *middlewares.ObservabilityManager
 }
 
 func NewApplication(cfg *config.Config) (*Application, error) {
@@ -76,8 +74,10 @@ func (app *Application) initialize() error {
 	}
 	app.db = db
 
-	client := cfg.RedisConfig.GetClient()
-
+	client, err := cfg.RedisConfig.GetClient()
+	if err != nil {
+		return err
+	}
 	// queue
 	queue := queue.NewRedisQueue(client)
 	app.queue = queue
@@ -87,25 +87,27 @@ func (app *Application) initialize() error {
 
 	app.dispatcher = dispatcher.NewDispatcher(log.Sugar(), queue, db)
 
-	_, _, err = tracing.Setup(&cfg.Tracing)
+	observabilityManager, err := middlewares.NewObservabilityManager(&cfg.Tracing)
 	if err != nil {
 		return err
 	}
+	app.observabilityManager = observabilityManager
 
 	// worker
 	if cfg.WorkerConfig.Enabled {
-		app.worker = worker.NewWorker(&cfg.WorkerConfig, db, queue)
+		tracer := app.observabilityManager.Tracer()
+		app.worker = worker.NewWorker(&cfg.WorkerConfig, db, queue, tracer)
 	}
 
 	// admin
 	if cfg.AdminConfig.IsEnabled() {
 		handler := api.NewAPI(cfg, db, app.dispatcher).Handler()
-		app.admin = admin.NewAdmin(cfg.AdminConfig, handler)
+		app.admin = admin.NewAdmin(cfg.AdminConfig, handler, app.observabilityManager)
 	}
 
 	// gateway
 	if cfg.ProxyConfig.IsEnabled() {
-		app.gateway = proxy.NewGateway(&cfg.ProxyConfig, db, app.dispatcher)
+		app.gateway = proxy.NewGateway(&cfg.ProxyConfig, db, app.dispatcher, app.observabilityManager)
 	}
 
 	return nil
@@ -169,10 +171,10 @@ func (app *Application) Stop() error {
 		app.worker.Stop()
 	}
 
-	if app.shutdown != nil {
-		err := app.shutdown(context.TODO())
+	if app.observabilityManager != nil {
+		err := app.observabilityManager.Close()
 		if err != nil {
-			app.log.Infof("failed to call otel shutdown: %v", err)
+			app.log.Infof("failed to call observability close: %v", err)
 		}
 	}
 

@@ -40,6 +40,7 @@ func initSqlxDB(cfg *config.DatabaseConfig) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	
 	return sqlx.NewDb(db, "postgres"), nil
 }
 

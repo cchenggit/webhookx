@@ -128,7 +128,7 @@ type TracerProvider struct {
 // Tracer returns the trace.Tracer for the given options.
 // It returns specifically the Tracer when requested.
 func (t TracerProvider) Tracer(name string, options ...trace.TracerOption) trace.Tracer {
-	if name == "github.com/traefik/traefik" {
+	if name == opentelemetry.TracerName {
 		return t.tracer
 	}
 

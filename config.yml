@@ -4,7 +4,7 @@
 
 log:
   file: /dev/stdout
-  level: info   # supported values are debug, info, warn, and error.
+  level: debug   # supported values are debug, info, warn, and error.
   format: text  # supported values are text and json
 
 database:
@@ -27,7 +27,7 @@ redis:
 #------------------------------------------------------------------------------
 
 admin:
-  #listen: 127.0.0.1:8080
+  listen: 127.0.0.1:8080
 
 #------------------------------------------------------------------------------
 # WORKER
@@ -60,14 +60,18 @@ proxy:
 
 tracing:
 #  enabled: false // do we need this?
+  service_name: WebhookX
+  global_attributes:
+    foo: bar
+    baz: buz
+  captured_request_headers:
+  captured_response_headers:
+  safe_query_params:
+  add_internals: true
   sampling_rate: 1
-#  timeout:
-#    connect: 1000
-#    read: 1000
-#    write: 1000
   opentelemetry:
     http:
-      endpoint: http://localhost:4318/v1/traces
+      endpoint: http://jaeger:4318/v1/traces
       headers:
         foo: bar
         baz: buz
