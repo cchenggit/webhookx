@@ -156,8 +156,6 @@ github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9de
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opentelemetry.io/collector/pdata v1.17.0 h1:z8cjjT2FThAehWu5fbF48OnZyK5q8xd1UhC4XszDo0w=
 go.opentelemetry.io/collector/pdata v1.17.0/go.mod h1:yZaQ9KZAm/qie96LTygRKxOXMq0/54h8OW7330ycuvQ=
-go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux v0.55.0 h1:lRMfRoJnAaDWadgR58z6xyMIaH5UQ5SzFOhA+LfmUkA=
-go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux v0.55.0/go.mod h1:7kJADjE+s91WUhMkzN7qTnDf2aUJZPzeD7RKw/uB5Xg=
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0 h1:ZIg3ZT/aQ7AfKqdwp7ECpOK6vHqquXXuyTjIO8ZdmPs=
 go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.55.0/go.mod h1:DQAwmETtZV00skUwgD6+0U89g80NKsJE3DCKeLLPQMI=
 go.opentelemetry.io/contrib/propagators/autoprop v0.55.0 h1:zXDUScOBq4fMn35V71SXLuFeDyYmb7V/rdhWgCXyiQM=

@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"fmt"
+
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/db/dao"
 	"github.com/webhookx-io/webhookx/db/transaction"
-	"go.opentelemetry.io/otel"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
+	"go.opencensus.io/trace"
 	"go.uber.org/zap"
 )
 
@@ -40,7 +42,7 @@ func initSqlxDB(cfg *config.DatabaseConfig) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return sqlx.NewDb(db, "postgres"), nil
 }
 
@@ -75,11 +77,12 @@ func (db *DB) Ping() error {
 	return db.DB.Ping()
 }
 
-var tracer = otel.Tracer("db")
-
 func (db *DB) TX(ctx context.Context, fn func(ctx context.Context) error) error {
-	_, span := tracer.Start(ctx, "transaction")
-	defer span.End()
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "db.transaction", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 
 	tx, err := db.DB.Beginx()
 	if err != nil {

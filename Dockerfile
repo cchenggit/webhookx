@@ -16,4 +16,4 @@ COPY --from=build-env /go/src/webhookx-io/webhookx/config.yml .
 
 EXPOSE 8080
 
-CMD ["webhookx", "start", "--config", "config.yml"]
+CMD ["webhookx", "start"]
