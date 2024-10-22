@@ -63,7 +63,6 @@ var _ = Describe("tracing proxy", Ordered, func() {
 
 			AfterAll(func() {
 				app.Stop()
-				helper.TruncateFile(helper.OtelCollectorTracesFile)
 			})
 
 			It("sanity", func() {
@@ -246,7 +245,6 @@ var _ = Describe("tracing proxy", Ordered, func() {
 
 		AfterAll(func() {
 			app.Stop()
-			helper.TruncateFile(helper.OtelCollectorTracesFile)
 		})
 
 		It("sanity", func() {
