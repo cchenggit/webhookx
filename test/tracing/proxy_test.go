@@ -5,22 +5,15 @@ import (
 	"fmt"
 	"time"
 
-	"testing"
-
 	"github.com/go-resty/resty/v2"
 	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/webhookx-io/webhookx/app"
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/test/helper"
 	"github.com/webhookx-io/webhookx/utils"
 )
-
-func TestTracing(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Tracing Suite")
-}
 
 var _ = Describe("tracing proxy", Ordered, func() {
 	endpoints := map[string]string{
@@ -148,33 +141,7 @@ var _ = Describe("tracing proxy", Ordered, func() {
 						return false
 					}
 
-					for _, resourceSpan := range trace.ResourceSpans {
-						scopeSpans := resourceSpan.ScopeSpans
-						for _, scopeSpan := range scopeSpans {
-							gotScopeNames[scopeSpan.Scope.Name] = true
-							for _, span := range scopeSpan.Spans {
-								attributes := make(map[string]string)
-								for _, attr := range span.Attributes {
-									if attr.Value.StringValue != nil {
-										attributes[attr.Key] = *attr.Value.StringValue
-									} else if attr.Value.IntValue != nil {
-										attributes[attr.Key] = *attr.Value.IntValue
-									} else if attr.Value.ArrayValue != nil {
-										if len(attr.Value.ArrayValue.Values) == 1 {
-											attributes[attr.Key] = attr.Value.ArrayValue.Values[0].StringValue
-										} else {
-											var values []string
-											for _, v := range attr.Value.ArrayValue.Values {
-												values = append(values, v.StringValue)
-											}
-											attributes[attr.Key] = fmt.Sprintf("[%s]", values)
-										}
-									}
-								}
-								gotSpanAttributes[span.Name] = attributes
-							}
-						}
-					}
+					trace.mergeTo(gotScopeNames, gotSpanAttributes)
 
 					if !gotScopeNames[expectedScopeName] {
 						fmt.Printf("scope %s not exist", expectedScopeName)

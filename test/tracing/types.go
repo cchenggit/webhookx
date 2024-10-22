@@ -1,5 +1,7 @@
 package tracing
 
+import "fmt"
+
 type ExportedTrace struct {
 	ResourceSpans []struct {
 		Resource struct {
@@ -48,4 +50,34 @@ type ExportedTrace struct {
 			} `json:"spans"`
 		} `json:"scopeSpans"`
 	} `json:"resourceSpans"`
+}
+
+func (t ExportedTrace) mergeTo(scopeNames map[string]bool, spanAttrs map[string]map[string]string) {
+	for _, resourceSpan := range t.ResourceSpans {
+		scopeSpans := resourceSpan.ScopeSpans
+		for _, scopeSpan := range scopeSpans {
+			scopeNames[scopeSpan.Scope.Name] = true
+			for _, span := range scopeSpan.Spans {
+				attributes := make(map[string]string)
+				for _, attr := range span.Attributes {
+					if attr.Value.StringValue != nil {
+						attributes[attr.Key] = *attr.Value.StringValue
+					} else if attr.Value.IntValue != nil {
+						attributes[attr.Key] = *attr.Value.IntValue
+					} else if attr.Value.ArrayValue != nil {
+						if len(attr.Value.ArrayValue.Values) == 1 {
+							attributes[attr.Key] = attr.Value.ArrayValue.Values[0].StringValue
+						} else {
+							var values []string
+							for _, v := range attr.Value.ArrayValue.Values {
+								values = append(values, v.StringValue)
+							}
+							attributes[attr.Key] = fmt.Sprintf("[%s]", values)
+						}
+					}
+				}
+				spanAttrs[span.Name] = attributes
+			}
+		}
+	}
 }
