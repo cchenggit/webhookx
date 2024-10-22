@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/XSAM/otelsql"
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/db/dao"
 	"github.com/webhookx-io/webhookx/db/transaction"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -32,7 +36,11 @@ type DB struct {
 }
 
 func initSqlxDB(cfg *config.DatabaseConfig) (*sqlx.DB, error) {
-	db, err := sql.Open("postgres", cfg.GetDSN())
+	driverName, err := otelsql.Register("postgres")
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(driverName, cfg.GetDSN())
 	// db.SetMaxOpenConns(100)
 	// db.SetMaxIdleConns(100)
 	// db.SetConnMaxLifetime(time.Hour)
@@ -40,6 +48,7 @@ func initSqlxDB(cfg *config.DatabaseConfig) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return sqlx.NewDb(db, "postgres"), nil
 }
 
@@ -75,6 +84,12 @@ func (db *DB) Ping() error {
 }
 
 func (db *DB) TX(ctx context.Context, fn func(ctx context.Context) error) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "db.transaction", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
+
 	tx, err := db.DB.Beginx()
 	if err != nil {
 		return err

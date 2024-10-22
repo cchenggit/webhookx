@@ -6,22 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
+	"time"
+
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/constants"
 	"github.com/webhookx-io/webhookx/eventbus"
 	"github.com/webhookx-io/webhookx/mcache"
-	"reflect"
-	"strings"
-	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jmoiron/sqlx"
 	"github.com/webhookx-io/webhookx/db/errs"
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/db/transaction"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/pkg/types"
 	"github.com/webhookx-io/webhookx/pkg/ucontext"
 	"github.com/webhookx-io/webhookx/utils"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -92,6 +95,11 @@ func (dao *DAO[T]) UnsafeDB(ctx context.Context) Queryable {
 }
 
 func (dao *DAO[T]) Get(ctx context.Context, id string) (entity *T, err error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.get", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	builder := psql.Select("*").From(dao.opts.Table).Where(sq.Eq{"id": id})
 	if dao.workspace {
 		wid := ucontext.GetWorkspaceID(ctx)
@@ -124,6 +132,11 @@ func (dao *DAO[T]) selectByField(ctx context.Context, field string, value string
 }
 
 func (dao *DAO[T]) Delete(ctx context.Context, id string) (bool, error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.delete", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	builder := psql.Delete(dao.opts.Table).Where(sq.Eq{"id": id})
 	if dao.workspace {
 		wid := ucontext.GetWorkspaceID(ctx)
@@ -146,6 +159,11 @@ func (dao *DAO[T]) Delete(ctx context.Context, id string) (bool, error) {
 }
 
 func (dao *DAO[T]) Page(ctx context.Context, q query.Queryer) (list []*T, total int64, err error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.page", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	total, err = dao.Count(ctx, q.WhereMap())
 	if err != nil {
 		return
@@ -155,6 +173,11 @@ func (dao *DAO[T]) Page(ctx context.Context, q query.Queryer) (list []*T, total 
 }
 
 func (dao *DAO[T]) Count(ctx context.Context, where map[string]interface{}) (total int64, err error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.count", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	builder := psql.Select("COUNT(*)").From(dao.opts.Table)
 	if len(where) > 0 {
 		builder = builder.Where(where)
@@ -170,6 +193,11 @@ func (dao *DAO[T]) Count(ctx context.Context, where map[string]interface{}) (tot
 }
 
 func (dao *DAO[T]) List(ctx context.Context, q query.Queryer) (list []*T, err error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.list", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	builder := psql.Select("*").From(dao.opts.Table)
 	where := q.WhereMap()
 	if len(where) > 0 {
@@ -214,6 +242,11 @@ func travel(entity interface{}, fn func(field reflect.StructField, value reflect
 }
 
 func (dao *DAO[T]) Insert(ctx context.Context, entity *T) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.insert", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	columns := make([]string, 0)
 	values := make([]interface{}, 0)
 	travel(entity, func(f reflect.StructField, v reflect.Value) {
@@ -238,6 +271,11 @@ func (dao *DAO[T]) Insert(ctx context.Context, entity *T) error {
 }
 
 func (dao *DAO[T]) BatchInsert(ctx context.Context, entities []*T) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.batch_insert", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	if len(entities) == 0 {
 		return nil
 	}
@@ -306,6 +344,11 @@ func (dao *DAO[T]) update(ctx context.Context, id string, maps map[string]interf
 }
 
 func (dao *DAO[T]) Update(ctx context.Context, entity *T) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "dao.update", trace.WithSpanKind(trace.SpanKindServer))
+		defer span.End()
+		ctx = tracingCtx
+	}
 	var id string
 	builder := psql.Update(dao.opts.Table)
 	travel(entity, func(f reflect.StructField, v reflect.Value) {
