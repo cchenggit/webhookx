@@ -58,11 +58,6 @@ func (o *OpentelemetryConfig) Setup(serviceName string, samplingRate float64, gl
 		context.Background(),
 		resource.WithAttributes(attr...), // Add custom attributes
 		resource.WithFromEnv(),           // Discover and provide attributes from OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME environment variables.
-		resource.WithTelemetrySDK(),      // Discover and provide information about the OpenTelemetry SDK used.
-		resource.WithProcess(),           // Discover and provide process information.
-		resource.WithOS(),                // Discover and provide OS information.
-		resource.WithContainer(),         // Discover and provide container information.
-		resource.WithHost(),              // Discover and provide host information.
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build resource: %w", err)
