@@ -4,6 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
+
+	"time"
+
 	"github.com/webhookx-io/webhookx/admin"
 	"github.com/webhookx-io/webhookx/admin/api"
 	"github.com/webhookx-io/webhookx/config"
@@ -14,13 +18,12 @@ import (
 	"github.com/webhookx-io/webhookx/pkg/cache"
 	"github.com/webhookx-io/webhookx/pkg/log"
 	"github.com/webhookx-io/webhookx/pkg/metrics"
+	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"github.com/webhookx-io/webhookx/pkg/taskqueue"
 	"github.com/webhookx-io/webhookx/proxy"
 	"github.com/webhookx-io/webhookx/worker"
 	"github.com/webhookx-io/webhookx/worker/deliverer"
 	"go.uber.org/zap"
-	"sync"
-	"time"
 )
 
 var (
@@ -44,9 +47,10 @@ type Application struct {
 	bus        *eventbus.EventBus
 	metrics    *metrics.Metrics
 
-	admin   *admin.Admin
-	gateway *proxy.Gateway
-	worker  *worker.Worker
+	admin                *admin.Admin
+	gateway              *proxy.Gateway
+	worker               *worker.Worker
+	observabilityManager *middlewares.ObservabilityManager
 }
 
 func NewApplication(cfg *config.Config) (*Application, error) {
@@ -109,6 +113,12 @@ func (app *Application) initialize() error {
 
 	app.dispatcher = dispatcher.NewDispatcher(log.Sugar(), queue, db, app.metrics)
 
+	observabilityManager, err := middlewares.NewObservabilityManager(&cfg.Tracing)
+	if err != nil {
+		return err
+	}
+	app.observabilityManager = observabilityManager
+
 	// worker
 	if cfg.Worker.Enabled {
 		opts := worker.WorkerOptions{
@@ -116,18 +126,19 @@ func (app *Application) initialize() error {
 			PoolConcurrency: int(cfg.Worker.Pool.Concurrency),
 		}
 		deliverer := deliverer.NewHTTPDeliverer(&cfg.Worker.Deliverer)
-		app.worker = worker.NewWorker(opts, db, deliverer, queue, app.metrics)
+		tracer := app.observabilityManager.Tracer()
+		app.worker = worker.NewWorker(opts, db, deliverer, queue, app.metrics, tracer)
 	}
 
 	// admin
 	if cfg.Admin.IsEnabled() {
 		handler := api.NewAPI(cfg, db, app.dispatcher).Handler()
-		app.admin = admin.NewAdmin(cfg.Admin, handler)
+		app.admin = admin.NewAdmin(cfg.Admin, handler, app.observabilityManager)
 	}
 
 	// gateway
 	if cfg.Proxy.IsEnabled() {
-		app.gateway = proxy.NewGateway(&cfg.Proxy, db, app.dispatcher, app.metrics)
+		app.gateway = proxy.NewGateway(&cfg.Proxy, db, app.dispatcher, app.metrics, app.observabilityManager)
 	}
 
 	return nil
@@ -215,6 +226,13 @@ func (app *Application) Stop() error {
 	}
 	if app.worker != nil {
 		_ = app.worker.Stop()
+	}
+
+	if app.observabilityManager != nil {
+		err := app.observabilityManager.Close()
+		if err != nil {
+			app.log.Infof("failed to call observability close: %v", err)
+		}
 	}
 
 	app.started = false

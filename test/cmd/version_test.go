@@ -1,11 +1,12 @@
 package cmd
 
 import (
+	"os/exec"
+	"testing"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
-	"os/exec"
-	"testing"
 )
 
 var _ = Describe("version", Ordered, func() {

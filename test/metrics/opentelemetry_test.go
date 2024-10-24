@@ -3,6 +3,9 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/go-resty/resty/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,8 +13,6 @@ import (
 	"github.com/webhookx-io/webhookx/app"
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/test/helper"
-	"testing"
-	"time"
 )
 
 var _ = Describe("opentelemetry", Ordered, func() {
@@ -33,6 +34,7 @@ var _ = Describe("opentelemetry", Ordered, func() {
 				entitiesConfig.Endpoints[1].Request.Timeout = 1
 				entitiesConfig.Sources[0].Async = true
 				helper.InitDB(true, &entitiesConfig)
+				helper.InitOtelOutput()
 				proxyClient = helper.ProxyClient()
 				var err error
 				app, err = helper.Start(map[string]string{
@@ -122,6 +124,7 @@ var _ = Describe("opentelemetry", Ordered, func() {
 
 		BeforeAll(func() {
 			var err error
+			helper.InitOtelOutput()
 			app, err = helper.Start(map[string]string{
 				"WEBHOOKX_METRICS_ATTRIBUTES":                 `{"env": "prod"}`,
 				"WEBHOOKX_METRICS_EXPORTS":                    "opentelemetry",

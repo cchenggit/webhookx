@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"runtime"
+
 	"github.com/gorilla/mux"
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/db/errs"
 	"github.com/webhookx-io/webhookx/pkg/ucontext"
 	"go.uber.org/zap"
-	"net/http"
-	"runtime"
 )
 
 func (api *API) contextMiddleware(next http.Handler) http.Handler {

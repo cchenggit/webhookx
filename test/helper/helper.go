@@ -18,21 +18,18 @@ import (
 	"github.com/webhookx-io/webhookx/utils"
 )
 
-var cfg *config.Config
-
 var (
-	OtelCollectorMetricsFile = "/tmp/otel/metrics.json"
+	OtelCollectorTracesFile  = "../output/otel/traces.json"
+	OtelCollectorMetricsFile = "../output/otel/metrics.json"
 )
+
+var cfg *config.Config
 
 func init() {
 	var err error
 	cfg, err = config.Init()
 	if err != nil {
 		panic(err)
-	}
-
-	if v := os.Getenv("WEBHOOKX_TEST_OTEL_COLLECTOR_OUTPUT_PATH"); v != "" {
-		OtelCollectorMetricsFile = path.Join(v, "metrics.json")
 	}
 }
 
@@ -217,11 +214,19 @@ func FileLine(filename string, n int) (string, error) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+
+	const maxCapacity = 1024 * 1024
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
 	for i := 1; scanner.Scan(); i++ {
 		s := scanner.Text()
 		if i == n {
 			return s, nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		panic(err)
 	}
 
 	return "", nil
@@ -233,11 +238,19 @@ func FileCountLine(filename string) (int, error) {
 		return 0, err
 	}
 	defer file.Close()
+
 	scanner := bufio.NewScanner(file)
+
+	const maxCapacity = 1024 * 1024
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
 	n := 0
 	for scanner.Scan() {
 		scanner.Text()
 		n++
+	}
+	if err := scanner.Err(); err != nil {
+		panic(err)
 	}
 	return n, nil
 }
@@ -254,11 +267,18 @@ func FileHasLine(filename string, regex string) (bool, error) {
 		return false, err
 	}
 	scanner := bufio.NewScanner(file)
+
+	const maxCapacity = 2 * 1024 * 1024
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if r.MatchString(line) {
 			return true, nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		panic(err)
 	}
 
 	return false, nil
@@ -299,4 +319,26 @@ func DefaultEvent() *entities.Event {
 	entity.Data = []byte("{}")
 
 	return &entity
+}
+
+func PathExist(_path string) bool {
+	_, err := os.Stat(_path)
+	if err != nil && os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
+func InitOtelOutput() {
+	if v := os.Getenv("WEBHOOKX_TEST_OTEL_COLLECTOR_OUTPUT_PATH"); v != "" {
+		OtelCollectorMetricsFile = path.Join(v, "metrics.json")
+		OtelCollectorTracesFile = path.Join(v, "traces.json")
+	}
+
+	if !PathExist(OtelCollectorTracesFile) {
+		os.Create(OtelCollectorTracesFile)
+	}
+	if !PathExist(OtelCollectorMetricsFile) {
+		os.Create(OtelCollectorMetricsFile)
+	}
 }

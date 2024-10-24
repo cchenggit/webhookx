@@ -8,6 +8,7 @@ receivers:
 
 processors:
   batch:
+    timeout: 0  #regardless of batch size, data will be sent immediately           
 
 exporters:
   debug:
@@ -36,3 +37,4 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [debug, file/traces]
+

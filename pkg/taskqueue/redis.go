@@ -3,12 +3,15 @@ package taskqueue
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/redis/go-redis/v9"
 	"github.com/webhookx-io/webhookx/constants"
 	"github.com/webhookx-io/webhookx/pkg/metrics"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/utils"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"time"
 )
 
 var (
@@ -91,6 +94,12 @@ func NewRedisQueue(opts RedisTaskQueueOptions, logger *zap.SugaredLogger, metric
 }
 
 func (q *RedisTaskQueue) Add(ctx context.Context, tasks []*TaskMessage) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(context.Background(), "queue.add", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		ctx = tracingCtx
+	}
+
 	members := make([]redis.Z, 0, len(tasks))
 	strs := make([]interface{}, 0, len(tasks)*2)
 	for _, task := range tasks {
@@ -113,6 +122,12 @@ func (q *RedisTaskQueue) Add(ctx context.Context, tasks []*TaskMessage) error {
 }
 
 func (q *RedisTaskQueue) Get(ctx context.Context, opts *GetOptions) ([]*TaskMessage, error) {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "queue.get", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		ctx = tracingCtx
+	}
+
 	keys := []string{q.queue, q.queueData, q.invisibleQueue}
 	argv := []interface{}{
 		opts.Count,
@@ -142,6 +157,12 @@ func (q *RedisTaskQueue) Get(ctx context.Context, opts *GetOptions) ([]*TaskMess
 }
 
 func (q *RedisTaskQueue) Delete(ctx context.Context, task *TaskMessage) error {
+	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
+		tracingCtx, span := tracer.Start(ctx, "queue.delete", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		ctx = tracingCtx
+	}
+
 	q.log.Debugf("[redis-queue]: delete task %s", task.ID)
 	pipeline := q.c.Pipeline()
 	pipeline.HDel(ctx, q.queueData, task.ID)
@@ -150,7 +171,6 @@ func (q *RedisTaskQueue) Delete(ctx context.Context, task *TaskMessage) error {
 	_, err := pipeline.Exec(ctx)
 	return err
 }
-
 func (q *RedisTaskQueue) Size(ctx context.Context) (int64, error) {
 	return q.c.ZCard(ctx, q.queue).Result()
 }
