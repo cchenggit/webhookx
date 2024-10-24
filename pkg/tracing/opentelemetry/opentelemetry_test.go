@@ -293,9 +293,8 @@ func TestTracing(t *testing.T) {
 				ServiceName:  "WebhookX",
 				SamplingRate: 1.0,
 				Opentelemetry: &config.OpenTelemetryConfig{
-					HTTP: config.OtelEndpoint{
-						Endpoint: collector.URL,
-					},
+					Protocol: config.OtlpProtocolHTTP,
+					Endpoint: collector.URL,
 				},
 			}
 

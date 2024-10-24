@@ -60,21 +60,30 @@ proxy:
       password:
       database: 0
 
+#------------------------------------------------------------------------------
+# METRICS
+#------------------------------------------------------------------------------
+metrics:
+  attributes:                                   # global attributes for each metric
+    env: prod
+  #exports: [ opentelemetry ]                   # list of enabled vendor exports. supported value are opentelemetry
+  opentelemetry:
+    push_interval: 10                           # interval(in seconds) at which metrics are sent to the OpenTelemetry Collector
+    protocol: http/protobuf                     # supported value are http/protobuf, grpc
+    endpoint: http://localhost:4318/v1/metrics  # http/protobuf(http://localhost:4318/v1/metrics), grpc(localhost:4317)
+
 tracing:
+  enabled: false
   service_name: WebhookX
-  attributes:
-  captured_request_headers: # optional,array, additional headers sent with traces by the exporter to the OpenTelemetry Collector
-  captured_response_headers: # optional, array, additional headers send with traces by the exporter to the OpenTelemetry Collector
-  safe_query_params: # optional,array, the list of query parameters to not redact
+  attributes:                   # global attributes for each trace
+    env: prod
+  captured_request_headers:     # optional,array, additional headers sent with traces by the exporter to the collector
+  captured_response_headers:    # optional,array, additional headers send with traces by the exporter to the collector
+  safe_query_params:            # optional,array, the list of query parameters to not redact
   sampling_rate: 1.0
   opentelemetry:
-    http:
-      endpoint: http://localhost:4318/v1/traces
-      headers:
-        foo: bar
-        baz: buz
-#    grpc:
-#      endpoint: localhost:4317
-#      headers:
-#        foo: bar
-#        baz: buz
+    protocal: http/protobuf     # supported value are http/protobuf, grpc
+    endpoint: http://localhost:4318/v1/traces # http/protobuf(http://localhost:4318/v1/traces), grpc(localhost:4317)
+    headers:                    # custom headers to be sent with the request
+      foo: bar
+      baz: buz

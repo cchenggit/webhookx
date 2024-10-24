@@ -8,6 +8,7 @@ import (
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/model"
+	"github.com/webhookx-io/webhookx/pkg/metrics"
 	"github.com/webhookx-io/webhookx/pkg/taskqueue"
 	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/pkg/types"
@@ -18,81 +19,77 @@ import (
 
 // Dispatcher is Event Dispatcher
 type Dispatcher struct {
-	log   *zap.SugaredLogger
-	queue taskqueue.TaskQueue
-	db    *db.DB
+	log     *zap.SugaredLogger
+	queue   taskqueue.TaskQueue
+	db      *db.DB
+	metrics *metrics.Metrics
 }
 
-func NewDispatcher(log *zap.SugaredLogger, queue taskqueue.TaskQueue, db *db.DB) *Dispatcher {
+func NewDispatcher(log *zap.SugaredLogger, queue taskqueue.TaskQueue, db *db.DB, metrics *metrics.Metrics) *Dispatcher {
 	dispatcher := &Dispatcher{
-		log:   log,
-		queue: queue,
-		db:    db,
+		log:     log,
+		queue:   queue,
+		db:      db,
+		metrics: metrics,
 	}
 	return dispatcher
 }
 
 func (d *Dispatcher) Dispatch(ctx context.Context, event *entities.Event) error {
+	return d.DispatchBatch(ctx, []*entities.Event{event})
+}
+
+func (d *Dispatcher) DispatchBatch(ctx context.Context, events []*entities.Event) error {
+	n, err := d.dispatchBatch(ctx, events)
+	if d.metrics.Enabled && err == nil {
+		d.metrics.EventPersistCounter.Add(float64(n))
+	}
+	return err
+}
+
+func (d *Dispatcher) dispatchBatch(ctx context.Context, events []*entities.Event) (int, error) {
 	if tracer := tracing.TracerFromContext(ctx); tracer != nil {
 		tracingCtx, span := tracer.Start(ctx, "dispatcher", trace.WithSpanKind(trace.SpanKindServer))
 		defer span.End()
 		ctx = tracingCtx
 	}
-	endpoints, err := d.listSubscribedEndpoint(ctx, event.WorkspaceId, event.EventType)
-	if err != nil {
-		return err
-	}
-
-	attempts := fanout(event, endpoints, entities.AttemptTriggerModeInitial)
-	if len(attempts) == 0 {
-		return d.db.Events.Insert(ctx, event)
-	}
-
-	err = d.db.TX(ctx, func(ctx context.Context) error {
-		err := d.db.Events.Insert(ctx, event)
-		if err != nil {
-			return err
-		}
-		return d.db.Attempts.BatchInsert(ctx, attempts)
-	})
-	if err != nil {
-		return err
-	}
-
-	go d.sendToQueue(context.TODO(), attempts)
-
-	return nil
-}
-
-func (d *Dispatcher) DispatchBatch(ctx context.Context, events []*entities.Event) error {
 	if len(events) == 0 {
-		return nil
+		return 0, nil
 	}
 
-	eventAttempts := make(map[string][]*entities.Attempt)
+	maps := make(map[string][]*entities.Attempt)
 	for _, event := range events {
 		endpoints, err := d.listSubscribedEndpoint(ctx, event.WorkspaceId, event.EventType)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		eventAttempts[event.ID] = fanout(event, endpoints, entities.AttemptTriggerModeInitial)
+		if len(endpoints) != 0 {
+			maps[event.ID] = fanout(event, endpoints, entities.AttemptTriggerModeInitial)
+		}
+	}
+
+	if len(maps) == 0 {
+		ids, err := d.db.Events.BatchInsertIgnoreConflict(ctx, events)
+		return len(ids), err
 	}
 
 	attempts := make([]*entities.Attempt, 0)
+	n := 0
 	err := d.db.TX(ctx, func(ctx context.Context) error {
 		ids, err := d.db.Events.BatchInsertIgnoreConflict(ctx, events)
 		if err != nil {
 			return err
 		}
+		n = len(ids)
 		for _, id := range ids {
-			attempts = append(attempts, eventAttempts[id]...)
+			attempts = append(attempts, maps[id]...)
 		}
 		return d.db.Attempts.BatchInsert(ctx, attempts)
 	})
-
-	go d.sendToQueue(context.TODO(), attempts)
-
-	return err
+	if err == nil {
+		go d.sendToQueue(context.TODO(), attempts)
+	}
+	return n, err
 }
 
 func fanout(event *entities.Event, endpoints []*entities.Endpoint, mode entities.AttemptTriggerMode) []*entities.Attempt {

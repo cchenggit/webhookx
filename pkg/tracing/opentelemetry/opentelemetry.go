@@ -2,7 +2,6 @@ package opentelemetry
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -20,7 +19,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/encoding/gzip"
 )
 
@@ -28,17 +26,14 @@ const TracerName = "github.com/webhookx-io/webhookx"
 
 type OpentelemetryConfig config.OpenTelemetryConfig
 
-func (o *OpentelemetryConfig) Setup(serviceName string, samplingRate float64, globalAttributes map[string]string) (trace.Tracer, io.Closer, error) {
+func (o *OpentelemetryConfig) Setup(serviceName string, samplingRate float64, attributes map[string]string) (trace.Tracer, io.Closer, error) {
 	var err error
 	var exporter *otlptrace.Exporter
 
-	if o.HTTP.Endpoint != "" {
-		exporter, err = setupHTTPExporter(o.HTTP)
-	} else if o.GRPC.Endpoint != "" {
-		exporter, err = setupGRPCExporter(o.GRPC)
-	} else {
-		zap.S().Info("No exporter configured, skipping setup")
-		return nil, nil, errors.New("exporter is not configured, failed to setup")
+	if o.Protocol == config.OtlpProtocolHTTP {
+		exporter, err = setupHTTPExporter(o)
+	} else if o.Protocol == config.OtlpProtocolGRPC {
+		exporter, err = setupGRPCExporter(o)
 	}
 
 	if err != nil {
@@ -50,14 +45,14 @@ func (o *OpentelemetryConfig) Setup(serviceName string, samplingRate float64, gl
 		semconv.ServiceVersionKey.String(config.VERSION),
 	}
 
-	for k, v := range globalAttributes {
+	for k, v := range attributes {
 		attr = append(attr, attribute.String(k, v))
 	}
 
 	res, err := resource.New(
 		context.Background(),
-		resource.WithAttributes(attr...), // Add custom attributes
-		resource.WithFromEnv(),           // Discover and provide attributes from OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME environment variables.
+		resource.WithAttributes(attr...),
+		resource.WithFromEnv(),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build resource: %w", err)
@@ -74,7 +69,7 @@ func (o *OpentelemetryConfig) Setup(serviceName string, samplingRate float64, gl
 	return tracerProvider.Tracer(TracerName), &tpCloser{provider: tracerProvider}, err
 }
 
-func setupHTTPExporter(c config.OtelEndpoint) (*otlptrace.Exporter, error) {
+func setupHTTPExporter(c *OpentelemetryConfig) (*otlptrace.Exporter, error) {
 	endpoint, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("invalid collector endpoint %q: %w", c.Endpoint, err)
@@ -97,15 +92,15 @@ func setupHTTPExporter(c config.OtelEndpoint) (*otlptrace.Exporter, error) {
 	return otlptrace.New(context.Background(), otlptracehttp.NewClient(opts...))
 }
 
-func setupGRPCExporter(cfg config.OtelEndpoint) (*otlptrace.Exporter, error) {
-	host, port, err := net.SplitHostPort(cfg.Endpoint)
+func setupGRPCExporter(c *OpentelemetryConfig) (*otlptrace.Exporter, error) {
+	host, port, err := net.SplitHostPort(c.Endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("invalid collector endpoint %q: %w", cfg.Endpoint, err)
+		return nil, fmt.Errorf("invalid collector endpoint %q: %w", c.Endpoint, err)
 	}
 
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(fmt.Sprintf("%s:%s", host, port)),
-		otlptracegrpc.WithHeaders(cfg.Headers),
+		otlptracegrpc.WithHeaders(c.Headers),
 		otlptracegrpc.WithCompressor(gzip.Name),
 		otlptracegrpc.WithInsecure(),
 	}
@@ -113,7 +108,6 @@ func setupGRPCExporter(cfg config.OtelEndpoint) (*otlptrace.Exporter, error) {
 	return otlptrace.New(context.Background(), otlptracegrpc.NewClient(opts...))
 }
 
-// tpCloser converts a TraceProvider into an io.Closer.
 type tpCloser struct {
 	provider *sdktrace.TracerProvider
 }

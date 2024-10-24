@@ -23,6 +23,7 @@ func (cfg RedisConfig) GetClient() *redis.Client {
 		DB:       int(cfg.Database),
 	}
 	rdb := redis.NewClient(options)
+
 	if err := redisotel.InstrumentTracing(rdb); err != nil {
 		zap.S().Errorf(`failed to instrument redis otel tracing %v`, err)
 	}

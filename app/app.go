@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 
+	"time"
+
 	"github.com/webhookx-io/webhookx/admin"
 	"github.com/webhookx-io/webhookx/admin/api"
 	"github.com/webhookx-io/webhookx/config"
@@ -15,13 +17,13 @@ import (
 	"github.com/webhookx-io/webhookx/mcache"
 	"github.com/webhookx-io/webhookx/pkg/cache"
 	"github.com/webhookx-io/webhookx/pkg/log"
+	"github.com/webhookx-io/webhookx/pkg/metrics"
 	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"github.com/webhookx-io/webhookx/pkg/taskqueue"
 	"github.com/webhookx-io/webhookx/proxy"
 	"github.com/webhookx-io/webhookx/worker"
 	"github.com/webhookx-io/webhookx/worker/deliverer"
 	"go.uber.org/zap"
-	"time"
 )
 
 var (
@@ -43,6 +45,7 @@ type Application struct {
 	dispatcher *dispatcher.Dispatcher
 	cache      cache.Cache
 	bus        *eventbus.EventBus
+	metrics    *metrics.Metrics
 
 	admin                *admin.Admin
 	gateway              *proxy.Gateway
@@ -75,7 +78,7 @@ func (app *Application) initialize() error {
 	app.log = zap.S()
 
 	// cache
-	client := cfg.RedisConfig.GetClient()
+	client := cfg.Redis.GetClient()
 	app.cache = cache.NewRedisCache(client)
 
 	mcache.Set(mcache.NewMCache(&mcache.Options{
@@ -86,54 +89,56 @@ func (app *Application) initialize() error {
 
 	app.bus = eventbus.NewEventBus(
 		app.NodeID(),
-		cfg.DatabaseConfig.GetDSN(),
+		cfg.Database.GetDSN(),
 		app.log)
 	registerEventHandler(app.bus)
 
 	// db
-	db, err := db.NewDB(&cfg.DatabaseConfig)
+	db, err := db.NewDB(&cfg.Database)
 	if err != nil {
 		return err
 	}
 	app.db = db
 
+	app.metrics, err = metrics.New(cfg.Metrics)
+	if err != nil {
+		return err
+	}
+
 	// queue
 	queue := taskqueue.NewRedisQueue(taskqueue.RedisTaskQueueOptions{
 		Client: client,
-	}, app.log)
+	}, app.log, app.metrics)
 	app.queue = queue
 
-	// cache
-	app.cache = cache.NewRedisCache(client)
+	app.dispatcher = dispatcher.NewDispatcher(log.Sugar(), queue, db, app.metrics)
 
-	app.dispatcher = dispatcher.NewDispatcher(log.Sugar(), queue, db)
-
-	observabilityManager, err := middlewares.NewObservabilityManager(&cfg.TracingConfig)
+	observabilityManager, err := middlewares.NewObservabilityManager(&cfg.Tracing)
 	if err != nil {
 		return err
 	}
 	app.observabilityManager = observabilityManager
 
 	// worker
-	if cfg.WorkerConfig.Enabled {
+	if cfg.Worker.Enabled {
 		opts := worker.WorkerOptions{
-			PoolSize:        int(cfg.WorkerConfig.Pool.Size),
-			PoolConcurrency: int(cfg.WorkerConfig.Pool.Concurrency),
+			PoolSize:        int(cfg.Worker.Pool.Size),
+			PoolConcurrency: int(cfg.Worker.Pool.Concurrency),
 		}
-		deliverer := deliverer.NewHTTPDeliverer(&cfg.WorkerConfig.Deliverer)
+		deliverer := deliverer.NewHTTPDeliverer(&cfg.Worker.Deliverer)
 		tracer := app.observabilityManager.Tracer()
-		app.worker = worker.NewWorker(opts, db, deliverer, queue, tracer)
+		app.worker = worker.NewWorker(opts, db, deliverer, queue, app.metrics, tracer)
 	}
 
 	// admin
-	if cfg.AdminConfig.IsEnabled() {
+	if cfg.Admin.IsEnabled() {
 		handler := api.NewAPI(cfg, db, app.dispatcher).Handler()
-		app.admin = admin.NewAdmin(cfg.AdminConfig, handler, app.observabilityManager)
+		app.admin = admin.NewAdmin(cfg.Admin, handler, app.observabilityManager)
 	}
 
 	// gateway
-	if cfg.ProxyConfig.IsEnabled() {
-		app.gateway = proxy.NewGateway(&cfg.ProxyConfig, db, app.dispatcher, app.observabilityManager)
+	if cfg.Proxy.IsEnabled() {
+		app.gateway = proxy.NewGateway(&cfg.Proxy, db, app.dispatcher, app.metrics, app.observabilityManager)
 	}
 
 	return nil
@@ -209,15 +214,18 @@ func (app *Application) Stop() error {
 	}()
 
 	_ = app.bus.Stop()
+	if app.metrics != nil {
+		_ = app.metrics.Stop()
+	}
 	// TODO: timeout
 	if app.admin != nil {
-		app.admin.Stop()
+		_ = app.admin.Stop()
 	}
 	if app.gateway != nil {
-		app.gateway.Stop()
+		_ = app.gateway.Stop()
 	}
 	if app.worker != nil {
-		app.worker.Stop()
+		_ = app.worker.Stop()
 	}
 
 	if app.observabilityManager != nil {

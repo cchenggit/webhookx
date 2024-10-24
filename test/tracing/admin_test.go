@@ -18,8 +18,8 @@ import (
 
 var _ = Describe("tracing admin", Ordered, func() {
 	endpoints := map[string]string{
-		"http": "http://localhost:4318/v1/traces",
-		"grpc": "localhost:4317",
+		"http/protobuf": "http://localhost:4318/v1/traces",
+		"grpc":          "localhost:4317",
 	}
 	for protocol, address := range endpoints {
 		Context(protocol, func() {
@@ -41,18 +41,16 @@ var _ = Describe("tracing admin", Ordered, func() {
 				envs := map[string]string{
 					"WEBHOOKX_ADMIN_LISTEN":                    "0.0.0.0:8080",
 					"WEBHOOKX_PROXY_LISTEN":                    "0.0.0.0:8081",
+					"WEBHOOKX_TRACING_ENABLED":                 "true",
 					"WEBHOOKX_TRACING_SERVICENAME":             "WebhookX", // env splite by _
 					"WEBHOOKX_TRACING_CAPTUREDREQUESTHEADERS":  "X-Request-Id,Content-Type,Accept",
 					"WEBHOOKX_TRACING_CAPTUREDRESPONSEHEADERS": "Content-Type",
 					"WEBHOOKX_TRACING_SAFEQUERYPARAMS":         "page_no",
 					"WEBHOOKX_TRACING_SAMPLINGRATE":            "1",
+					"WEBHOOKX_TRACING_OPENTELEMETRY_PROTOCOL":  protocol,
+					"WEBHOOKX_TRACING_OPENTELEMETRY_ENDPOINT":  address,
 				}
 
-				if protocol == "http" {
-					envs["WEBHOOKX_TRACING_OPENTELEMETRY_HTTP_ENDPOINT"] = address
-				} else {
-					envs["WEBHOOKX_TRACING_OPENTELEMETRY_GRPC_ENDPOINT"] = address
-				}
 				app = utils.Must(helper.Start(envs))
 			})
 

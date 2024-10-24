@@ -164,6 +164,68 @@ func TestProxyConfig(t *testing.T) {
 	}
 }
 
+func TestMetricsConfig(t *testing.T) {
+	tests := []struct {
+		desc                string
+		cfg                 MetricsConfig
+		expectedValidateErr error
+	}{
+		{
+			desc: "sanity",
+			cfg: MetricsConfig{
+				Attributes: nil,
+				Exports:    nil,
+				OpenTelemetry: Opentelemetry{
+					PushInterval: 1,
+					Protocol:     "http/protobuf",
+				},
+			},
+			expectedValidateErr: nil,
+		},
+		{
+			desc: "invalid export",
+			cfg: MetricsConfig{
+				Attributes: nil,
+				Exports:    []Export{"unknown"},
+				OpenTelemetry: Opentelemetry{
+					PushInterval: 1,
+					Protocol:     "http/protobuf",
+				},
+			},
+			expectedValidateErr: errors.New("invalid export: unknown"),
+		},
+		{
+			desc: "invalid export",
+			cfg: MetricsConfig{
+				Attributes: nil,
+				Exports:    nil,
+				OpenTelemetry: Opentelemetry{
+					PushInterval: 1,
+					Protocol:     "unknown",
+				},
+			},
+			expectedValidateErr: errors.New("invalid protocol: unknown"),
+		},
+		{
+			desc: "invalid PushInterval",
+			cfg: MetricsConfig{
+				Attributes: nil,
+				Exports:    nil,
+				OpenTelemetry: Opentelemetry{
+					PushInterval: 61,
+					Protocol:     "http/protobuf",
+				},
+			},
+			expectedValidateErr: errors.New("interval must be in the range [1, 60]"),
+		},
+	}
+
+	for _, test := range tests {
+		actualValidateErr := test.cfg.Validate()
+		assert.Equal(t, test.expectedValidateErr, actualValidateErr, "expected %v got %v", test.expectedValidateErr, actualValidateErr)
+	}
+}
+
 func TestTracingConfig(t *testing.T) {
 	tests := []struct {
 		desc                string
@@ -176,14 +238,9 @@ func TestTracingConfig(t *testing.T) {
 				ServiceName:  "WebhookX",
 				SamplingRate: 0,
 				Opentelemetry: &OpenTelemetryConfig{
-					HTTP: OtelEndpoint{
-						Endpoint: "http://localhost:4318/v1/traces",
-						Headers:  map[string]string{},
-					},
-					GRPC: OtelEndpoint{
-						Endpoint: "localhost:4317",
-						Headers:  map[string]string{},
-					},
+					Protocol: "http/protobuf",
+					Endpoint: "http://localhost:4318/v1/traces",
+					Headers:  map[string]string{},
 				},
 			},
 			expectedValidateErr: nil,
@@ -194,10 +251,9 @@ func TestTracingConfig(t *testing.T) {
 				ServiceName:  "WebhookX",
 				SamplingRate: 1.1,
 				Opentelemetry: &OpenTelemetryConfig{
-					HTTP: OtelEndpoint{
-						Endpoint: "http://localhost:4318/v1/traces",
-						Headers:  map[string]string{},
-					},
+					Protocol: "http/protobuf",
+					Endpoint: "http://localhost:4318/v1/traces",
+					Headers:  map[string]string{},
 				},
 			},
 			expectedValidateErr: errors.New("invalid sampling rate, must be [0,1]"),

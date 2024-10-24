@@ -14,6 +14,7 @@ type ObservabilityManager struct {
 	config       *config.TracingConfig
 	tracer       *tracing.Tracer
 	tracerCloser io.Closer
+	Enabled      bool
 }
 
 func NewObservabilityManager(cfg *config.TracingConfig) (*ObservabilityManager, error) {
@@ -26,11 +27,8 @@ func NewObservabilityManager(cfg *config.TracingConfig) (*ObservabilityManager, 
 		config:       cfg,
 		tracer:       tracer,
 		tracerCloser: closer,
+		Enabled:      cfg.Enabled && tracer != nil,
 	}, nil
-}
-
-func (o *ObservabilityManager) IsTracingEnable() bool {
-	return o.config != nil && o.tracer != nil
 }
 
 func (o *ObservabilityManager) BuildChain(ctx context.Context, entryPointName string) alice.Chain {

@@ -19,13 +19,14 @@ var (
 var cfg Config
 
 type Config struct {
-	Log            LogConfig      `yaml:"log" envconfig:"LOG"`
-	DatabaseConfig DatabaseConfig `yaml:"database" envconfig:"DATABASE"`
-	RedisConfig    RedisConfig    `yaml:"redis" envconfig:"REDIS"`
-	AdminConfig    AdminConfig    `yaml:"admin" envconfig:"ADMIN"`
-	ProxyConfig    ProxyConfig    `yaml:"proxy" envconfig:"PROXY"`
-	WorkerConfig   WorkerConfig   `yaml:"worker" envconfig:"WORKER"`
-	TracingConfig  TracingConfig  `yaml:"tracing" envconfig:"TRACING"`
+	Log      LogConfig      `yaml:"log" envconfig:"LOG"`
+	Database DatabaseConfig `yaml:"database" envconfig:"DATABASE"`
+	Redis    RedisConfig    `yaml:"redis" envconfig:"REDIS"`
+	Admin    AdminConfig    `yaml:"admin" envconfig:"ADMIN"`
+	Proxy    ProxyConfig    `yaml:"proxy" envconfig:"PROXY"`
+	Worker   WorkerConfig   `yaml:"worker" envconfig:"WORKER"`
+	Metrics  MetricsConfig  `yaml:"metrics" envconfig:"METRICS"`
+	Tracing  TracingConfig  `yaml:"tracing" envconfig:"TRACING"`
 }
 
 func (cfg Config) String() string {
@@ -40,23 +41,26 @@ func (cfg Config) Validate() error {
 	if err := cfg.Log.Validate(); err != nil {
 		return err
 	}
-	if err := cfg.DatabaseConfig.Validate(); err != nil {
+	if err := cfg.Database.Validate(); err != nil {
 		return err
 	}
-	if err := cfg.RedisConfig.Validate(); err != nil {
+	if err := cfg.Redis.Validate(); err != nil {
 		return err
 	}
-	if err := cfg.AdminConfig.Validate(); err != nil {
+	if err := cfg.Admin.Validate(); err != nil {
 		return err
 	}
-	if err := cfg.ProxyConfig.Validate(); err != nil {
+	if err := cfg.Proxy.Validate(); err != nil {
 		return err
 	}
-	if err := cfg.WorkerConfig.Validate(); err != nil {
+	if err := cfg.Worker.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.Metrics.Validate(); err != nil {
 		return err
 	}
 
-	if err := cfg.TracingConfig.Validate(); err != nil {
+	if err := cfg.Tracing.Validate(); err != nil {
 		return err
 	}
 

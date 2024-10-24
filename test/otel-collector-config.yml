@@ -8,8 +8,7 @@ receivers:
 
 processors:
   batch:
-    send_batch_size: 256   
-    timeout: 2s              
+    timeout: 0  #regardless of batch size, data will be sent immediately           
 
 exporters:
   debug:

@@ -19,7 +19,8 @@ import (
 )
 
 var (
-	OtelCollectorTracesFile string = "../output/otel/traces.json"
+	OtelCollectorTracesFile  = "../output/otel/traces.json"
+	OtelCollectorMetricsFile = "../output/otel/metrics.json"
 )
 
 var cfg *config.Config
@@ -30,7 +31,6 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-
 }
 
 var defaultEnvs = map[string]string{
@@ -96,7 +96,7 @@ func DB() *db.DB {
 	if err != nil {
 		return nil
 	}
-	db, err := db.NewDB(&cfg.DatabaseConfig)
+	db, err := db.NewDB(&cfg.Database)
 	if err != nil {
 		return nil
 	}
@@ -120,7 +120,7 @@ func InitDB(truncated bool, entities *EntitiesConfig) *db.DB {
 		}
 	}
 
-	db, err := db.NewDB(&cfg.DatabaseConfig)
+	db, err := db.NewDB(&cfg.Database)
 	if err != nil {
 		panic(err)
 	}
@@ -191,7 +191,7 @@ func ResetDB() error {
 		return err
 	}
 
-	migrator := migrator.New(&cfg.DatabaseConfig)
+	migrator := migrator.New(&cfg.Database)
 	err = migrator.Reset()
 	if err != nil {
 		return err
@@ -331,10 +331,14 @@ func PathExist(_path string) bool {
 
 func InitOtelOutput() {
 	if v := os.Getenv("WEBHOOKX_TEST_OTEL_COLLECTOR_OUTPUT_PATH"); v != "" {
+		OtelCollectorMetricsFile = path.Join(v, "metrics.json")
 		OtelCollectorTracesFile = path.Join(v, "traces.json")
 	}
 
 	if !PathExist(OtelCollectorTracesFile) {
 		os.Create(OtelCollectorTracesFile)
+	}
+	if !PathExist(OtelCollectorMetricsFile) {
+		os.Create(OtelCollectorMetricsFile)
 	}
 }

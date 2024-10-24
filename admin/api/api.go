@@ -2,15 +2,17 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
+	"strconv"
+
 	"github.com/gorilla/mux"
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/db"
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/dispatcher"
 	"github.com/webhookx-io/webhookx/pkg/errs"
+	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"go.uber.org/zap"
-	"net/http"
-	"strconv"
 )
 
 const (
@@ -95,7 +97,7 @@ func (api *API) assert(err error) {
 func (api *API) Handler() http.Handler {
 	r := mux.NewRouter()
 
-	r.Use(panicRecovery)
+	r.Use(middlewares.PanicRecovery)
 	r.Use(api.contextMiddleware)
 
 	r.HandleFunc("/", api.Index).Methods("GET")

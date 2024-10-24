@@ -16,6 +16,7 @@ import (
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/dispatcher"
+	"github.com/webhookx-io/webhookx/pkg/metrics"
 	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"github.com/webhookx-io/webhookx/pkg/queue"
 	"github.com/webhookx-io/webhookx/pkg/queue/redis"
@@ -48,18 +49,19 @@ type Gateway struct {
 
 	dispatcher *dispatcher.Dispatcher
 
-	queue queue.Queue
+	queue   queue.Queue
+	metrics *metrics.Metrics
 
 	observabilityManager *middlewares.ObservabilityManager
 }
 
-func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispatcher, observabilityManager *middlewares.ObservabilityManager) *Gateway {
+func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispatcher, metrics *metrics.Metrics, observabilityManager *middlewares.ObservabilityManager) *Gateway {
 	var q queue.Queue
 	switch cfg.Queue.Type {
 	case "redis":
 		rq, err := redis.NewRedisQueue(redis.RedisQueueOptions{
 			Client: cfg.Queue.Redis.GetClient(),
-		}, zap.S())
+		}, zap.S(), metrics)
 		if err != nil {
 			zap.S().Warnf("[proxy] failed to create redis queue: %v", err)
 		} else {
@@ -74,15 +76,19 @@ func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispa
 		db:                   db,
 		dispatcher:           dispatcher,
 		queue:                q,
+		metrics:              metrics,
 		observabilityManager: observabilityManager,
 	}
 
 	r := mux.NewRouter()
-	r.Use(panicRecovery)
+	r.Use(middlewares.PanicRecovery)
+	if metrics.Enabled {
+		r.Use(middlewares.NewMetricsMiddleware(metrics).Handle)
+	}
 	r.PathPrefix("/").HandlerFunc(gw.Handle)
 
 	var handler http.Handler = r
-	if observabilityManager.IsTracingEnable() {
+	if observabilityManager.Enabled {
 		chain := gw.observabilityManager.BuildChain(context.Background(), "proxy")
 		handler = chain.Then(r)
 	}
@@ -151,7 +157,7 @@ func (gw *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, http.StatusText(code), code)
 			return
 		}
-		utils.JsonResponse(400, w, ErrorResponse{
+		utils.JsonResponse(400, w, types.ErrorResponse{
 			Message: err.Error(),
 		})
 		return
@@ -161,7 +167,7 @@ func (gw *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 	event.IngestedAt = types.Time{Time: time.Now()}
 	event.WorkspaceId = source.WorkspaceId
 	if err := event.Validate(); err != nil {
-		utils.JsonResponse(400, w, ErrorResponse{
+		utils.JsonResponse(400, w, types.ErrorResponse{
 			Message: "Request Validation",
 			Error:   err,
 		})
@@ -173,6 +179,9 @@ func (gw *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
 		gw.log.Errorf("[proxy] failed to ingest event: %v", err)
 		exit(w, 500, `{"message": "internal error"}`, nil)
 		return
+	}
+	if gw.metrics.Enabled {
+		gw.metrics.EventTotalCounter.Add(1)
 	}
 
 	if source.Response != nil {
@@ -252,7 +261,7 @@ func (gw *Gateway) listenQueue() {
 		case <-gw.ctx.Done():
 			return
 		default:
-			ctx := context.Background()
+			ctx := context.TODO()
 			messages, err := gw.queue.Dequeue(ctx, opts)
 			if err != nil {
 				gw.log.Warnf("[proxy] [queue] failed to dequeue: %v", err)

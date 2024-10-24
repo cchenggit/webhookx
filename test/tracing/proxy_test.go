@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/webhookx-io/webhookx/app"
+	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/db/entities"
 	"github.com/webhookx-io/webhookx/test/helper"
 	"github.com/webhookx-io/webhookx/utils"
@@ -17,8 +18,8 @@ import (
 
 var _ = Describe("tracing proxy", Ordered, func() {
 	endpoints := map[string]string{
-		"http": "http://localhost:4318/v1/traces",
-		"grpc": "localhost:4317",
+		"http/protobuf": "http://localhost:4318/v1/traces",
+		"grpc":          "localhost:4317",
 	}
 	for protocol, address := range endpoints {
 		Context(protocol, func() {
@@ -39,18 +40,16 @@ var _ = Describe("tracing proxy", Ordered, func() {
 				envs := map[string]string{
 					"WEBHOOKX_PROXY_LISTEN":                    "0.0.0.0:8081",
 					"WEBHOOKX_TRACING_SERVICENAME":             "WebhookX", // env splite by _
+					"WEBHOOKX_TRACING_ENABLED":                 "true",
 					"WEBHOOKX_TRACING_CAPTUREDREQUESTHEADERS":  "X-Request-Id,Content-Type,Accept",
 					"WEBHOOKX_TRACING_CAPTUREDRESPONSEHEADERS": "Content-Type",
 					"WEBHOOKX_TRACING_SAFEQUERYPARAMS":         "test",
 					"WEBHOOKX_TRACING_SAMPLINGRATE":            "1",
-					"WEBHOOKX_TRACING_GLOBALATTRIBUTES":        "env:dev",
+					"WEBHOOKX_TRACING_ATTRIBUTES":              "env:dev",
+					"WEBHOOKX_TRACING_OPENTELEMETRY_PROTOCOL":  protocol,
+					"WEBHOOKX_TRACING_OPENTELEMETRY_ENDPOINT":  address,
 				}
 
-				if protocol == "http" {
-					envs["WEBHOOKX_TRACING_OPENTELEMETRY_HTTP_ENDPOINT"] = address
-				} else {
-					envs["WEBHOOKX_TRACING_OPENTELEMETRY_GRPC_ENDPOINT"] = address
-				}
 				app = utils.Must(helper.Start(envs))
 			})
 
@@ -86,10 +85,10 @@ var _ = Describe("tracing proxy", Ordered, func() {
 					"http.route":         "/",
 				}
 				expectedScopeSpans := map[string]map[string]string{
-					"entrypoint":       entrypoint,
-					"router":           router,
-					"dispatcher":       {},
-					"dao.insert":       {},
+					"entrypoint": entrypoint,
+					"router":     router,
+					"dispatcher": {},
+					// "dao.insert":       {},
 					"db.transaction":   {},
 					"dao.batch_insert": {},
 					"dao.list":         {},
@@ -196,16 +195,17 @@ var _ = Describe("tracing proxy", Ordered, func() {
 			proxyClient = helper.ProxyClient()
 
 			app, err = helper.Start(map[string]string{
-				"WEBHOOKX_PROXY_LISTEN":                        "0.0.0.0:8081",
-				"WEBHOOKX_TRACING_SERVICENAME":                 "WebhookX", // env splite by _
-				"WEBHOOKX_TRACING_CAPTUREDREQUESTHEADERS":      "X-Request-Id,Content-Type,Accept",
-				"WEBHOOKX_TRACING_CAPTUREDRESPONSEHEADERS":     "Content-Type",
-				"WEBHOOKX_TRACING_SAFEQUERYPARAMS":             "test",
-				"WEBHOOKX_TRACING_SAMPLINGRATE":                "1",
-				"WEBHOOKX_TRACING_GLOBALATTRIBUTES":            "env:test",
-				"WEBHOOKX_TRACING_OPENTELEMETRY_HTTP_ENDPOINT": "http://localhost:4318/v1/traces",
-				"OTEL_RESOURCE_ATTRIBUTES":                     "service.version=0.3",
-				"OTEL_SERVICE_NAME":                            "WebhookX-Test", // env override
+				"WEBHOOKX_PROXY_LISTEN":                    "0.0.0.0:8081",
+				"WEBHOOKX_TRACING_SERVICENAME":             "WebhookX", // env splite by _
+				"WEBHOOKX_TRACING_CAPTUREDREQUESTHEADERS":  "X-Request-Id,Content-Type,Accept",
+				"WEBHOOKX_TRACING_CAPTUREDRESPONSEHEADERS": "Content-Type",
+				"WEBHOOKX_TRACING_SAFEQUERYPARAMS":         "test",
+				"WEBHOOKX_TRACING_SAMPLINGRATE":            "1",
+				"WEBHOOKX_TRACING_ATTRIBUTES":              "env:test",
+				"WEBHOOKX_TRACING_OPENTELEMETRY_PROTOCOL":  string(config.OtlpProtocolHTTP),
+				"WEBHOOKX_TRACING_OPENTELEMETRY_ENDPOINT":  "http://localhost:4318/v1/traces",
+				"OTEL_RESOURCE_ATTRIBUTES":                 "service.version=0.3",
+				"OTEL_SERVICE_NAME":                        "WebhookX-Test", // env override
 			})
 			assert.Nil(GinkgoT(), err)
 		})

@@ -17,7 +17,7 @@ type Admin struct {
 }
 
 func NewAdmin(cfg config.AdminConfig, handler http.Handler, observabilityManager *middlewares.ObservabilityManager) *Admin {
-	if observabilityManager.IsTracingEnable() {
+	if observabilityManager.Enabled {
 		chain := observabilityManager.BuildChain(context.Background(), "admin")
 		handler = chain.Then(handler)
 	}

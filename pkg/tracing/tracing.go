@@ -24,10 +24,9 @@ import (
 )
 
 func Setup(conf *config.TracingConfig) (*Tracer, io.Closer, error) {
-	if conf == nil {
+	if !conf.Enabled {
 		return nil, nil, nil
 	}
-
 	tracer, closer, err := NewTracing(conf)
 	if err != nil {
 		zap.S().Warnf("Unable to create tracer:%v", err)
@@ -37,14 +36,12 @@ func Setup(conf *config.TracingConfig) (*Tracer, io.Closer, error) {
 	return tracer, closer, nil
 }
 
-// Backend is an abstraction for tracking backend (OpenTelemetry, ...).
 type Backend interface {
-	Setup(serviceName string, samplingRate float64, globalAttributes map[string]string) (trace.Tracer, io.Closer, error)
+	Setup(serviceName string, samplingRate float64, attributes map[string]string) (trace.Tracer, io.Closer, error)
 }
 
-// NewTracing Creates a Tracing.
 func NewTracing(conf *config.TracingConfig) (*Tracer, io.Closer, error) {
-	if !conf.IsEnable() {
+	if conf == nil {
 		return nil, nil, nil
 	}
 	var backend Backend
@@ -62,7 +59,7 @@ func NewTracing(conf *config.TracingConfig) (*Tracer, io.Closer, error) {
 
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
 
-	tr, closer, err := backend.Setup(conf.ServiceName, conf.SamplingRate, conf.GlobalAttributes)
+	tr, closer, err := backend.Setup(conf.ServiceName, conf.SamplingRate, conf.Attributes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -70,9 +67,7 @@ func NewTracing(conf *config.TracingConfig) (*Tracer, io.Closer, error) {
 	return NewTracer(tr, conf.CapturedRequestHeaders, conf.CapturedResponseHeaders, conf.SafeQueryParams), closer, nil
 }
 
-// TracerFromContext extracts the trace.Tracer from the given context.
 func TracerFromContext(ctx context.Context) *Tracer {
-	// Prevent picking trace.Span tracer.
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		return nil
 	}
@@ -90,46 +85,38 @@ func TracerFromContext(ctx context.Context) *Tracer {
 	return nil
 }
 
-// ExtractCarrierIntoContext reads cross-cutting concerns from the carrier into a Context.
 func ExtractCarrierIntoContext(ctx context.Context, headers http.Header) context.Context {
 	propagator := otel.GetTextMapPropagator()
 	return propagator.Extract(ctx, propagation.HeaderCarrier(headers))
 }
 
-// InjectContextIntoCarrier sets cross-cutting concerns from the request context into the request headers.
 func InjectContextIntoCarrier(req *http.Request) {
 	propagator := otel.GetTextMapPropagator()
 	propagator.Inject(req.Context(), propagation.HeaderCarrier(req.Header))
 }
 
-// SetStatusErrorf flags the span as in error and log an event.
 func SetStatusErrorf(ctx context.Context, format string, args ...interface{}) {
 	if span := trace.SpanFromContext(ctx); span != nil {
 		span.SetStatus(codes.Error, fmt.Sprintf(format, args...))
 	}
 }
 
-// Span is trace.Span wrapping the TracerProvider.
 type Span struct {
 	trace.Span
 
 	tracerProvider *TracerProvider
 }
 
-// TracerProvider returns the span's TraceProvider.
 func (s Span) TracerProvider() trace.TracerProvider {
 	return s.tracerProvider
 }
 
-// TracerProvider is trace.TracerProvider wrapping the Tracer implementation.
 type TracerProvider struct {
 	trace.TracerProvider
 
 	tracer *Tracer
 }
 
-// Tracer returns the trace.Tracer for the given options.
-// It returns specifically the Tracer when requested.
 func (t TracerProvider) Tracer(name string, options ...trace.TracerOption) trace.Tracer {
 	if name == opentelemetry.TracerName {
 		return t.tracer
@@ -138,7 +125,6 @@ func (t TracerProvider) Tracer(name string, options ...trace.TracerOption) trace
 	return t.TracerProvider.Tracer(name, options...)
 }
 
-// Tracer is trace.Tracer with additional properties.
 type Tracer struct {
 	trace.Tracer
 
@@ -147,7 +133,6 @@ type Tracer struct {
 	capturedResponseHeaders []string
 }
 
-// NewTracer builds and configures a new Tracer.
 func NewTracer(tracer trace.Tracer, capturedRequestHeaders, capturedResponseHeaders, safeQueryParams []string) *Tracer {
 	return &Tracer{
 		Tracer:                  tracer,
@@ -157,7 +142,6 @@ func NewTracer(tracer trace.Tracer, capturedRequestHeaders, capturedResponseHead
 	}
 }
 
-// Start starts a new span.
 func (t *Tracer) Start(ctx context.Context, spanName string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	if t == nil {
 		return ctx, nil
@@ -170,17 +154,14 @@ func (t *Tracer) Start(ctx context.Context, spanName string, opts ...trace.SpanS
 	return trace.ContextWithSpan(spanCtx, wrappedSpan), wrappedSpan
 }
 
-// CaptureClientRequest used to add span attributes from the request as a Client.
 func (t *Tracer) CaptureClientRequest(span trace.Span, r *http.Request) {
 	if t == nil || span == nil || r == nil {
 		return
 	}
 
-	// Common attributes https://github.com/open-telemetry/semantic-conventions/blob/v1.26.0/docs/http/http-spans.md#common-attributes
 	span.SetAttributes(semconv.HTTPRequestMethodKey.String(r.Method))
 	span.SetAttributes(semconv.NetworkProtocolVersion(proto(r.Proto)))
 
-	// Client attributes https://github.com/open-telemetry/semantic-conventions/blob/v1.26.0/docs/http/http-spans.md#http-client
 	sURL := t.safeURL(r.URL)
 	span.SetAttributes(semconv.URLFull(sURL.String()))
 	span.SetAttributes(semconv.URLScheme(sURL.Scheme))
@@ -218,18 +199,15 @@ func (t *Tracer) CaptureClientRequest(span trace.Span, r *http.Request) {
 	}
 }
 
-// CaptureServerRequest used to add span attributes from the request as a Server.
 func (t *Tracer) CaptureServerRequest(span trace.Span, r *http.Request) {
 	if t == nil || span == nil || r == nil {
 		return
 	}
 
-	// Common attributes https://github.com/open-telemetry/semantic-conventions/blob/v1.26.0/docs/http/http-spans.md#common-attributes
 	span.SetAttributes(semconv.HTTPRequestMethodKey.String(r.Method))
 	span.SetAttributes(semconv.NetworkProtocolVersion(proto(r.Proto)))
 
 	sURL := t.safeURL(r.URL)
-	// Server attributes https://github.com/open-telemetry/semantic-conventions/blob/v1.26.0/docs/http/http-spans.md#http-server-semantic-conventions
 	span.SetAttributes(semconv.HTTPRequestBodySize(int(r.ContentLength)))
 	span.SetAttributes(semconv.URLPath(sURL.Path))
 	span.SetAttributes(semconv.URLQuery(sURL.RawQuery))
@@ -250,7 +228,6 @@ func (t *Tracer) CaptureServerRequest(span trace.Span, r *http.Request) {
 	}
 
 	for _, header := range t.capturedRequestHeaders {
-		// User-agent is already part of the semantic convention as a recommended attribute.
 		if strings.EqualFold(header, "User-Agent") {
 			continue
 		}
@@ -261,7 +238,6 @@ func (t *Tracer) CaptureServerRequest(span trace.Span, r *http.Request) {
 	}
 }
 
-// CaptureResponse captures the response attributes to the span.
 func (t *Tracer) CaptureResponse(span trace.Span, responseHeaders http.Header, code int, spanKind trace.SpanKind) {
 	if t == nil || span == nil {
 		return
@@ -301,7 +277,6 @@ func (t *Tracer) safeURL(originalURL *url.URL) *url.URL {
 		redactedURL.User = url.UserPassword("REDACTED", "REDACTED")
 	}
 
-	// Redact query parameters.
 	query := redactedURL.Query()
 	for k := range query {
 		if slices.Contains(t.safeQueryParams, k) {
@@ -330,9 +305,6 @@ func proto(proto string) string {
 	}
 }
 
-// serverStatus returns a span status code and message for an HTTP status code
-// value returned by a server. Status codes in the 400-499 range are not
-// returned as errors.
 func serverStatus(code int) (codes.Code, string) {
 	if code < 100 || code >= 600 {
 		return codes.Error, fmt.Sprintf("Invalid HTTP status code %d", code)
@@ -343,9 +315,6 @@ func serverStatus(code int) (codes.Code, string) {
 	return codes.Unset, ""
 }
 
-// clientStatus returns a span status code and message for an HTTP status code
-// value returned by a server. Status codes in the 400-499 range are not
-// returned as errors.
 func clientStatus(code int) (codes.Code, string) {
 	if code < 100 || code >= 600 {
 		return codes.Error, fmt.Sprintf("Invalid HTTP status code %d", code)
@@ -356,8 +325,6 @@ func clientStatus(code int) (codes.Code, string) {
 	return codes.Unset, ""
 }
 
-// defaultStatus returns a span status code and message for an HTTP status code
-// value generated internally.
 func defaultStatus(code int) (codes.Code, string) {
 	if code < 100 || code >= 600 {
 		return codes.Error, fmt.Sprintf("Invalid HTTP status code %d", code)
