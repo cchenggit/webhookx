@@ -55,14 +55,6 @@ jobs:
           sleep 3
           docker compose -f test/docker-compose.yml logs
 
-      - name: start dependencies
-        run: |
-          mkdir -p test/output/otel
-          sudo chmod 777 -R test/output/otel
-          make deps
-          sleep 3
-          docker compose -f test/docker-compose.yml logs
-
       - name: install
         run: make install
 
