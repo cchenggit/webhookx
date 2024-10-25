@@ -1,13 +1,11 @@
 DIR := $(shell pwd)
 
-export WEBHOOKX_TEST_OTEL_COLLECTOR_OUTPUT_PATH=$(DIR)/test/output/otel
-
 LDFLAGS = --ldflags "\
 		-X github.com/webhookx-io/webhookx/config.COMMIT=`git rev-parse --verify --short HEAD` \
 		-X github.com/webhookx-io/webhookx/config.VERSION=`git tag -l --points-at HEAD | head -n 1`"
 
 .PHONY: clean build install generate test test-coverage test-integration \
-	test-integration-coverage goreleaser migrate-create deps
+	test-integration-coverage goreleaser migrate-create test-deps
 
 clean:
 	go clean
@@ -22,13 +20,17 @@ install:
 generate:
 	go generate ./...
 
-deps:
+
+test-deps:
+	export WEBHOOKX_TEST_OTEL_COLLECTOR_OUTPUT_PATH=$(DIR)/test/output/otel
 	mkdir -p test/output/otel
 	docker compose -f test/docker-compose.yml up -d
 
-test: clean
+test: clean test-deps
 	go test $$(go list ./... | grep -v /test/)
 
+
+.PHONY: test-coverage
 test-coverage: clean
 	go test $$(go list ./... | grep -v /test/) -coverprofile=coverage.txt
 

@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"os"
+	"runtime"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/webhookx-io/webhookx/config"
 	"github.com/webhookx-io/webhookx/constants"
@@ -12,19 +17,19 @@ import (
 	"github.com/webhookx-io/webhookx/db/query"
 	"github.com/webhookx-io/webhookx/dispatcher"
 	"github.com/webhookx-io/webhookx/pkg/metrics"
+	"github.com/webhookx-io/webhookx/pkg/middlewares"
 	"github.com/webhookx-io/webhookx/pkg/queue"
 	"github.com/webhookx-io/webhookx/pkg/queue/redis"
 	"github.com/webhookx-io/webhookx/pkg/schedule"
+	"github.com/webhookx-io/webhookx/pkg/tracing"
 	"github.com/webhookx-io/webhookx/pkg/types"
 	"github.com/webhookx-io/webhookx/pkg/ucontext"
-	"github.com/webhookx-io/webhookx/proxy/middlewares"
 	"github.com/webhookx-io/webhookx/proxy/router"
 	"github.com/webhookx-io/webhookx/utils"
+	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"net/http"
-	"os"
-	"runtime"
-	"time"
 )
 
 var (
@@ -46,25 +51,33 @@ type Gateway struct {
 
 	queue   queue.Queue
 	metrics *metrics.Metrics
+
+	observabilityManager *middlewares.ObservabilityManager
 }
 
-func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispatcher, metrics *metrics.Metrics) *Gateway {
+func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispatcher, metrics *metrics.Metrics, observabilityManager *middlewares.ObservabilityManager) *Gateway {
 	var q queue.Queue
 	switch cfg.Queue.Type {
 	case "redis":
-		q, _ = redis.NewRedisQueue(redis.RedisQueueOptions{
+		rq, err := redis.NewRedisQueue(redis.RedisQueueOptions{
 			Client: cfg.Queue.Redis.GetClient(),
 		}, zap.S(), metrics)
+		if err != nil {
+			zap.S().Warnf("[proxy] failed to create redis queue: %v", err)
+		} else {
+			q = rq
+		}
 	}
 
 	gw := &Gateway{
-		cfg:        cfg,
-		log:        zap.S(),
-		router:     router.NewRouter(nil),
-		db:         db,
-		dispatcher: dispatcher,
-		queue:      q,
-		metrics:    metrics,
+		cfg:                  cfg,
+		log:                  zap.S(),
+		router:               router.NewRouter(nil),
+		db:                   db,
+		dispatcher:           dispatcher,
+		queue:                q,
+		metrics:              metrics,
+		observabilityManager: observabilityManager,
 	}
 
 	r := mux.NewRouter()
@@ -74,8 +87,13 @@ func NewGateway(cfg *config.ProxyConfig, db *db.DB, dispatcher *dispatcher.Dispa
 	}
 	r.PathPrefix("/").HandlerFunc(gw.Handle)
 
+	var handler http.Handler = r
+	if observabilityManager.Enabled {
+		chain := gw.observabilityManager.BuildChain(context.Background(), "proxy")
+		handler = chain.Then(r)
+	}
 	gw.s = &http.Server{
-		Handler: r,
+		Handler: handler,
 		Addr:    cfg.Listen,
 
 		ReadTimeout:  time.Duration(cfg.TimeoutRead) * time.Second,
@@ -104,7 +122,23 @@ func (gw *Gateway) buildRouter() {
 }
 
 func (gw *Gateway) Handle(w http.ResponseWriter, r *http.Request) {
-	source, _ := gw.router.Execute(r).(*entities.Source)
+	var source *entities.Source
+	tracer := tracing.TracerFromContext(r.Context())
+	if tracer != nil {
+		tracingCtx, span := tracer.Start(r.Context(), "router", trace.WithSpanKind(trace.SpanKindInternal))
+		defer span.End()
+		r = r.WithContext(tracingCtx)
+		defer func() {
+			if source != nil {
+				span.SetAttributes(attribute.String("router.id", source.ID))
+				span.SetAttributes(attribute.String("router.name", utils.PointerValue(source.Name)))
+				span.SetAttributes(attribute.String("router.workspaceId", source.WorkspaceId))
+				span.SetAttributes(semconv.HTTPRoute(source.Path))
+			}
+		}()
+	}
+
+	source, _ = gw.router.Execute(r).(*entities.Source)
 	if source == nil {
 		exit(w, 404, `{"message": "not found"}`, nil)
 		return

@@ -3,33 +3,33 @@ name: Test
 on:
   pull_request:
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
   push:
     branches:
       - main
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - uses: actions/setup-go@v5
-      with:
-        go-version-file: go.mod
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
-    - name: run tests
-      run: make test-coverage
+      - name: run tests
+        run: make test-coverage
 
-    - name: upload coverage reselt to Codecov
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: true
-        flags: unit
+      - name: upload coverage reselt to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+          flags: unit
 
     services:
       httpbin:
@@ -46,12 +46,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
+          
       - name: start dependencies
         run: |
           mkdir -p test/output/otel
           sudo chmod 777 -R test/output/otel
-          make deps
+          make test-deps
           sleep 3
           docker compose -f test/docker-compose.yml logs
 
