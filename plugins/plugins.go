@@ -9,6 +9,7 @@ import (
 
 func LoadPlugins() {
 	plugin.RegisterPlugin(plugin.TypeInbound, "function", function.New)
+	plugin.RegisterPlugin(plugin.TypeInbound, "jsonschema-validator", jsonschema_validator.New)
 	plugin.RegisterPlugin(plugin.TypeOutbound, "wasm", wasm.New)
 	plugin.RegisterPlugin(plugin.TypeOutbound, "webhookx-signature", webhookx_signature.New)
 }
