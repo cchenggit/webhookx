@@ -42,7 +42,7 @@ sources:
                     type: string
                   amount:
                     type: "integer"
-                    minimum": 0
+                    minimum: 1
                   currency:
                     type: "string"
                     minLength: 3

@@ -51,6 +51,7 @@ type Context struct {
 }
 
 type InboundResult struct {
-	Terminated bool
-	Payload    []byte
+	Terminated   bool
+	Payload      []byte
+	RequestError error
 }

@@ -39,6 +39,31 @@ endpoints:
     plugins:
       - name: foo
 `
+
+	invalidSourcePluginYAML = `
+sources:
+  - name: default-source
+    path: /
+    methods: ["POST"]
+    plugins:
+      - name: "jsonschema-validator"
+        config:
+          event_schemas:
+            - event_type: "charge.succeeded"
+              jsonschema:
+                type: "XXXobject"
+                properties:
+                  id:
+                    type: "string"
+                  amount:
+                    type: "integer"
+                    minimum: 1
+                  currency:
+                    type: "string"
+                    minLength: 3
+                    maxLength: 6
+                required: ["id", "amount", "currency"]
+`
 )
 
 var _ = Describe("Declarative", Ordered, func() {
@@ -101,6 +126,17 @@ var _ = Describe("Declarative", Ordered, func() {
 				assert.Nil(GinkgoT(), err)
 				assert.Equal(GinkgoT(), 400, resp.StatusCode())
 				assert.Equal(GinkgoT(), `{"message":"Request Validation","error":{"message":"request validation","fields":{"name":"unknown plugin name 'foo'"}}}`, string(resp.Body()))
+			})
+
+			It("should return 400 for invalid source plugin config", func() {
+				resp, err := adminClient.R().
+					SetBody(invalidSourcePluginYAML).
+					Post("/workspaces/default/config/sync")
+				assert.Nil(GinkgoT(), err)
+				assert.Equal(GinkgoT(), 400, resp.StatusCode())
+				assert.Equal(GinkgoT(),
+					`{"message":"Request Validation","error":{"message":"request validation","fields":{"config":{"event_schemas[0]":{"jsonschema":"unsupported 'type' value \"XXXobject\""}}}}}`,
+					string(resp.Body()))
 			})
 		})
 	})

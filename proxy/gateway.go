@@ -235,6 +235,14 @@ func (gw *Gateway) handle(w http.ResponseWriter, r *http.Request) bool {
 			response.JSON(w, 500, types.ErrorResponse{Message: "internal error"})
 			return false
 		}
+		if result.RequestError != nil {
+			response.JSON(w, 400, types.ErrorResponse{
+				Message: "Request Validation",
+				Error:   result.RequestError,
+			})
+			return false
+		}
+
 		if result.Terminated {
 			return false
 		}

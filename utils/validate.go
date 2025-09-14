@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-playground/validator/v10"
 	"github.com/webhookx-io/webhookx/pkg/errs"
 	"reflect"
@@ -18,6 +21,18 @@ func init() {
 			return ""
 		}
 		return name
+	})
+	// register jsonschema validation
+	validate.RegisterValidation("jsonschema", func(fl validator.FieldLevel) bool {
+		schemaDef, ok := fl.Field().Interface().(json.RawMessage)
+		if !ok {
+			return false
+		}
+		err := jsonschemaValidate(string(schemaDef))
+		if err != nil {
+			return false
+		}
+		return true
 	})
 }
 
@@ -49,6 +64,30 @@ func init() {
 	RegisterFormatter("max", func(fe validator.FieldError) string {
 		return fmt.Sprintf("length must be at most %s", fe.Param())
 	})
+	RegisterFormatter("jsonschema", func(fe validator.FieldError) string {
+		schemaDef, ok := fe.Value().(json.RawMessage)
+		if !ok {
+			return "invalid jsonschema"
+		}
+		err := jsonschemaValidate(string(schemaDef))
+		if err != nil {
+			return err.Error()
+		}
+		return "invalid jsonschema"
+	})
+}
+
+func jsonschemaValidate(defs string) error {
+	schema := &openapi3.Schema{}
+	err := schema.UnmarshalJSON([]byte(defs))
+	if err != nil {
+		return err
+	}
+	err = schema.Validate(context.Background(), openapi3.EnableSchemaFormatValidation())
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func RegisterValidation(tag string, fn validator.Func) {

@@ -9,13 +9,13 @@ import (
 )
 
 type Config struct {
-	EventSchemas    []*EventTypeSchema         `json:"event_schemas"`
+	EventSchemas    []*EventTypeSchema         `json:"event_schemas" validate:"dive"`
 	EventSchemasMap map[string]json.RawMessage `json:"-"`
 }
 
 type EventTypeSchema struct {
 	EventType  string          `json:"event_type" validate:"required,max=100"`
-	JSONSchema json.RawMessage `json:"jsonschema" validate:"required,max=1048576"`
+	JSONSchema json.RawMessage `json:"jsonschema" validate:"required,jsonschema,max=1048576"`
 }
 
 type SchemaValidatorPlugin struct {
@@ -24,7 +24,7 @@ type SchemaValidatorPlugin struct {
 
 func New(config []byte) (plugin.Plugin, error) {
 	p := &SchemaValidatorPlugin{}
-	p.Name = "schema_validator"
+	p.Name = "jsonschema-validator"
 
 	if config != nil {
 		if err := p.UnmarshalConfig(config); err != nil {
@@ -64,6 +64,7 @@ func (p *SchemaValidatorPlugin) ExecuteInbound(inbound *plugin.Inbound) (res plu
 	schemaDef, ok := p.Config.EventSchemasMap[eventType]
 	if !ok || len(schemaDef) == 0 {
 		// no schema defined for this event type, skip validation
+		res.Payload = body
 		return res, nil
 	}
 
@@ -72,12 +73,9 @@ func (p *SchemaValidatorPlugin) ExecuteInbound(inbound *plugin.Inbound) (res plu
 		Data: data.(map[string]any),
 	}
 	jsonchemaValidator := jsonschema.New(schemaDef)
-	err = jsonchemaValidator.Validate(&jsonschema.ValidatorContext{
+	res.RequestError = jsonchemaValidator.Validate(&jsonschema.ValidatorContext{
 		HTTPRequest: req,
 	})
-	if err != nil {
-		return
-	}
 	res.Payload = body
 	return
 }

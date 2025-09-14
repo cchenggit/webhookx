@@ -13,9 +13,11 @@ services:
         condition: service_healthy
 
   webhookx:
-    image: "webhookx/webhookx:0.8.0"
+    # image: "webhookx/webhookx:0.8.0"
+    build: .
     container_name: webhookx
     environment:
+      WEBHOOKX_LOG_LEVEL: debug
       WEBHOOKX_DATABASE_HOST: webhookx-database
       WEBHOOKX_DATABASE_USERNAME: webhookx
       WEBHOOKX_DATABASE_DATABASE: webhookx
