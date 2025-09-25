@@ -40,10 +40,9 @@ sources:
       - name: "jsonschema-validator"
         config:
           schemas:
+            default_schema: "*"
             charge.succeeded:
-              #file: "../fixtures/jsonschema/charge.succeed.json"
-              #url: "https://raw.githubusercontent.com/cchenggit/webhookx/refs/heads/feat/plugin-jsonschema-validator/test/fixtures/jsonschema/charge.succeed.json"
-              json: |
+              schema: |
                 {
                   "type": "object",
                   "properties": {
